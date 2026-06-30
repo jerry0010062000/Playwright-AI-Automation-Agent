@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+
+# Local secrets
+config_local.py
+.env
+
+# Local run logs & recordings
+temp/
+records/
+temp_test/
+
