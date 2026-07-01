@@ -240,6 +240,10 @@ def main():
         print(f"[>>] Navigating to: {args.url}")
         print("[+] Capturing screen...")
         page.goto(args.url)
+        try:
+            page.focus("body")
+        except Exception:
+            pass
         initial_screenshot = page.screenshot(type="png")
         
         # 儲存初始截圖

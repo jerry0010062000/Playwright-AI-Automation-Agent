@@ -249,11 +249,31 @@ def _handle_claude_computer_action(page, args: dict, screen_width: int, screen_h
         text = args.get("text", "")
         page.keyboard.type(text)
     elif action == "key":
-        key = args.get("key", "")
-        # Playwright 支持與 Anthropic 類似的 Key 字符（如 Return / Enter 等）
-        if key.lower() == "return":
-            key = "Enter"
-        page.keyboard.press(key)
+        raw_key = args.get("text", "") or args.get("key", "")
+        if raw_key:
+            # 支援組合鍵轉換，將 Anthropic 格式（如 ctrl+s, alt+tab）翻譯為 Playwright 格式
+            parts = raw_key.split("+")
+            translated_parts = []
+            for part in parts:
+                p = part.strip().lower()
+                if p == "ctrl":
+                    translated_parts.append("Control")
+                elif p == "alt":
+                    translated_parts.append("Alt")
+                elif p == "shift":
+                    translated_parts.append("Shift")
+                elif p in ("meta", "win", "command", "cmd"):
+                    translated_parts.append("Meta")
+                elif p in ("return", "enter"):
+                    translated_parts.append("Enter")
+                else:
+                    if len(p) > 1:
+                        translated_parts.append(part.strip().capitalize())
+                    else:
+                        translated_parts.append(part.strip())
+            
+            final_key = "+".join(translated_parts)
+            page.keyboard.press(final_key)
     elif action == "left_click_drag":
         page.mouse.down()
         page.mouse.move(actual_x, actual_y)
