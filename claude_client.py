@@ -204,6 +204,28 @@ class ClaudeAgent:
                 "display_width_px": 1024,
                 "display_height_px": 768,
                 "display_number": 1,
+            },
+            {
+                "name": "navigate",
+                "description": "Directly navigate to a specific URL in the browser (e.g. 'http://localhost:8000/'). Use this tool when you get lost, navigate to a wrong page, or need to return to the home page.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "The target URL to load (e.g. 'http://localhost:8000/')."
+                        }
+                    },
+                    "required": ["url"]
+                }
+            },
+            {
+                "name": "go_back",
+                "description": "Go back to the previous page in the browser history.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {}
+                }
             }
         ]
         
