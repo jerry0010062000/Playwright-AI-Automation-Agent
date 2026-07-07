@@ -30,7 +30,7 @@ from config import (
 )
 from gemini_client import GeminiAgent, get_function_responses
 from claude_client import ClaudeAgent
-from browser_actions import execute_function_calls
+from browser_actions import execute_function_calls, run_axe_audit, scan_focus_path
 
 
 class NullWriter:
@@ -264,9 +264,97 @@ def main():
         print(f"  原因說明：{axe_reason}")
         print("="*60)
         print("[*] 啟動 Axe-core 本地自動化無障礙檢測引擎...")
-        print("[+] 正在提取網頁 DOM 結構進行無障礙審查...")
-        print("[✓] 本地代碼檢測完成！已產出靜態審查數據。(後續我們將在此處擴充 Axe-core 執行邏輯)")
-        print("="*60 + "\n")
+        
+        playwright = sync_playwright().start()
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context(
+            viewport={"width": 1024, "height": 768}
+        )
+        page = context.new_page()
+        
+        target_url = args.url or INITIAL_URL
+        print(f"[>>] 正在導航至目標頁面: {target_url}")
+        try:
+            page.goto(target_url, wait_until="domcontentloaded")
+            print("[+] 正在提取網頁 DOM 結構進行無障礙審查...")
+            
+            axe_results = run_axe_audit(page)
+            violations = axe_results.get("violations", [])
+            
+            print(f"[✓] 本地代碼檢測完成！共發現 {len(violations)} 個無障礙違規項目。")
+            print("="*60)
+            
+            report_lines = []
+            report_lines.append("# 📝 Axe-core 無障礙靜態審查報告\n")
+            report_lines.append(f"- **檢測目標網址**: {target_url}")
+            report_lines.append(f"- **檢測時間**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            report_lines.append(f"- **違規項目總數**: {len(violations)}\n")
+            report_lines.append("## ❌ 違規詳情列表\n")
+            
+            if not violations:
+                report_lines.append("🎉 恭喜！未發現任何靜態無障礙違規項目。")
+                print("🎉 恭喜！未發現任何靜態無障礙違規項目。")
+            else:
+                for idx, vio in enumerate(violations):
+                    vio_id = vio.get("id", "N/A")
+                    impact = vio.get("impact", "N/A").upper()
+                    desc = vio.get("description", "")
+                    help_msg = vio.get("help", "")
+                    help_url = vio.get("helpUrl", "")
+                    nodes = vio.get("nodes", [])
+                    
+                    header = f"### {idx+1}. [{impact}] {vio_id} - {help_msg}"
+                    report_lines.append(header)
+                    report_lines.append(f"- **描述**: {desc}")
+                    report_lines.append(f"- **規範說明連結**: [{vio_id} 說明]({help_url})")
+                    report_lines.append(f"- **受影響元素數量**: {len(nodes)}")
+                    report_lines.append("\n**受影響的 HTML 節點與 CSS 選擇器**:")
+                    
+                    print(f"\n❌ [{impact}] {vio_id}: {help_msg}")
+                    print(f"   描述: {desc}")
+                    print(f"   影響元素數: {len(nodes)}")
+                    
+                    for node_idx, node in enumerate(nodes[:5]):
+                        selector = ", ".join(node.get("target", []))
+                        html_snippet = node.get("html", "")
+                        summary = node.get("failureSummary", "")
+                        
+                        node_text = f"  - 節點 {node_idx+1}: `{selector}`"
+                        report_lines.append(node_text)
+                        report_lines.append(f"    - HTML: `{html_snippet}`")
+                        report_lines.append(f"    - 修復建議: {summary}")
+                        
+                        if node_idx == 0:
+                            print(f"   - 範例節點: {selector}")
+                            print(f"     範例 HTML: {html_snippet}")
+                            print(f"     修復建議: {summary}")
+                            
+                    if len(nodes) > 5:
+                        report_lines.append(f"  - *(其餘 {len(nodes) - 5} 個節點已省略)*")
+                    report_lines.append("")
+                    
+            if args.record:
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                record_dir = os.path.join("records", f"axe_run_{timestamp}")
+                os.makedirs(record_dir, exist_ok=True)
+                
+                report_path = os.path.join(record_dir, "report.md")
+                with open(report_path, "w", encoding="utf-8") as rf:
+                    rf.write("\n".join(report_lines))
+                    
+                json_path = os.path.join(record_dir, "axe_raw_results.json")
+                with open(json_path, "w", encoding="utf-8") as jf:
+                    json.dump(axe_results, jf, indent=2, ensure_ascii=False)
+                    
+                print(f"\n[*] 審查報告已儲存至: {record_dir}")
+                
+            print("="*60 + "\n")
+            
+        except Exception as e:
+            print(f"[ERROR] Axe-core 執行失敗: {e}")
+        finally:
+            browser.close()
+            playwright.stop()
         return
     
     is_claude = args.model.lower().startswith("claude-")
@@ -391,6 +479,31 @@ def main():
         report_file.write(f"![初始截圖]({initial_screenshot_name})\n\n")
         report_file.flush()
         
+        # Level 2 Focus Scan (若任務與鍵盤、焦點或 Tab 鍵相關，自動執行焦點掃描並附加於 Prompt)
+        is_keyboard_task = any(kw in user_task.lower() or kw in extra_instructions.lower() for kw in ["keyboard", "tab", "focus", "按鍵", "鍵盤", "焦點"])
+        if is_keyboard_task:
+            print("[*] 偵測到鍵盤或焦點相關任務，啟動本地 Focus-Path 焦點路徑掃描器...")
+            focus_map = scan_focus_path(page)
+            if focus_map:
+                print(f"[✓] 掃描完成！共尋找到 {len(focus_map)} 個可聚焦元素。")
+                
+                table_lines = [
+                    "\n\n### 🔍 本地自動化焦點順序地圖 (Focus Map)",
+                    "以下為本地 Focus-Path 掃描器自動聚焦遍歷所有元素得到的順序與資訊：\n",
+                    "| 順序 | 標籤 (Tag) | 識別碼 (ID) | 類別 (Class) | 文字內容/標題 | 坐標 (X, Y) | 焦點環 CSS 樣式 (Outline) |",
+                    "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+                ]
+                for item in focus_map:
+                    table_lines.append(
+                        f"| {item['index']} | {item['tagName']} | `{item['id']}` | `{item['className']}` | {item['text']} | {item['x']},{item['y']} | `{item['outline']}` |"
+                    )
+                
+                focus_map_text = "\n".join(table_lines)
+                extra_instructions += f"\n\n{focus_map_text}\n\n**請注意：上表為本地直接對所有 DOM 元素進行 focus() 後所得的資料。如果上表中有任何互動元素沒有顯示有效的 outline（即 outline-style 為 none），或者某些應有的元素不在上表中（無法被 Tab 聚焦），這代表可能違反 WCAG 2.4.7 (Focus Visible) 或 2.1.1 (Keyboard)。請優先參照上表的坐標與順序來規劃您的驗證操作。**"
+                
+                report_file.write(f"\n### 🔍 自動掃描焦點地圖\n已自動掃描整頁可聚焦元素，共發現 {len(focus_map)} 個元素，詳細焦點順序地圖已注入 AI 上下文中。\n")
+                report_file.flush()
+                
         # 建立第一次互動
         print(f"[AI] Sending task to {'Claude' if is_claude else 'Gemini'}...")
         interaction = agent.create_initial_interaction(user_task, initial_screenshot, extra_instructions)

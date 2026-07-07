@@ -281,3 +281,90 @@ def _handle_claude_computer_action(page, args: dict, screen_width: int, screen_h
     elif action == "screenshot":
         pass
 
+
+def run_axe_audit(page) -> dict:
+    """
+    載入並執行本地 Axe-core 審查，獲取 WCAG 違規資料
+    """
+    import os
+    axe_path = os.path.join(os.path.dirname(__file__), "lib", "axe.min.js")
+    if not os.path.exists(axe_path):
+        axe_path = os.path.join("lib", "axe.min.js")
+        
+    if not os.path.exists(axe_path):
+        raise FileNotFoundError(f"本地 Axe-core 庫未找到: {axe_path}")
+        
+    # 注入 Axe-core
+    page.add_script_tag(path=axe_path)
+    
+    # 執行 axe.run()
+    try:
+        result = page.evaluate("async () => { return await axe.run(); }")
+        return result
+    except Exception as e:
+        print(f"[ERROR] Axe-core evaluation failed: {e}")
+        return {"violations": []}
+
+
+def scan_focus_path(page) -> list:
+    """
+    透過 JavaScript 遍歷頁面上所有可聚焦的元素，收集焦點地圖與樣式
+    """
+    js_code = """
+    () => {
+        const focusableSelector = 'a, button, input, select, textarea, [tabindex], [contenteditable]';
+        const allElements = Array.from(document.querySelectorAll(focusableSelector));
+        
+        const visibleElements = allElements.filter(el => {
+            if (el.tabIndex < 0) return false;
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return false;
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            return true;
+        });
+
+        const focusMap = [];
+        const activeElBefore = document.activeElement;
+
+        for (let i = 0; i < visibleElements.length; i++) {
+            const el = visibleElements[i];
+            try {
+                el.focus();
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                
+                const outlineStyle = style.outlineStyle;
+                const outlineWidth = style.outlineWidth;
+                const outlineColor = style.outlineColor;
+                const hasOutline = outlineStyle !== 'none' && parseFloat(outlineWidth) > 0;
+                
+                focusMap.push({
+                    index: i + 1,
+                    tagName: el.tagName,
+                    id: el.id || '',
+                    className: el.className || '',
+                    text: (el.innerText || el.value || '').trim().substring(0, 40),
+                    x: Math.round(rect.left + rect.width / 2),
+                    y: Math.round(rect.top + rect.height / 2),
+                    outline: `${outlineStyle} ${outlineWidth} ${outlineColor}`,
+                    hasOutline: hasOutline
+                });
+            } catch (e) {
+                // Ignore element focus error
+            }
+        }
+
+        if (activeElBefore && typeof activeElBefore.focus === 'function') {
+            activeElBefore.focus();
+        }
+
+        return focusMap;
+    }
+    """
+    try:
+        return page.evaluate(js_code)
+    except Exception as e:
+        print(f"[WARNING] scan_focus_path failed: {e}")
+        return []
+
