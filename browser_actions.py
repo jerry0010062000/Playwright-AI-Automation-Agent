@@ -251,29 +251,33 @@ def _handle_claude_computer_action(page, args: dict, screen_width: int, screen_h
     elif action == "key":
         raw_key = args.get("text", "") or args.get("key", "")
         if raw_key:
-            # 支援組合鍵轉換，將 Anthropic 格式（如 ctrl+s, alt+tab）翻譯為 Playwright 格式
-            parts = raw_key.split("+")
-            translated_parts = []
-            for part in parts:
-                p = part.strip().lower()
-                if p == "ctrl":
-                    translated_parts.append("Control")
-                elif p == "alt":
-                    translated_parts.append("Alt")
-                elif p == "shift":
-                    translated_parts.append("Shift")
-                elif p in ("meta", "win", "command", "cmd"):
-                    translated_parts.append("Meta")
-                elif p in ("return", "enter"):
-                    translated_parts.append("Enter")
-                else:
-                    if len(p) > 1:
-                        translated_parts.append(part.strip().capitalize())
+            # 支援以空格分隔的多個按鍵（例如 "Tab Tab Tab"），讓 AI 可以一回合按多次鍵
+            keys_to_press = [k.strip() for k in raw_key.split(" ") if k.strip()]
+            for k in keys_to_press:
+                # 支援組合鍵轉換，將 Anthropic 格式（如 ctrl+s, alt+tab）翻譯為 Playwright 格式
+                parts = k.split("+")
+                translated_parts = []
+                for part in parts:
+                    p = part.strip().lower()
+                    if p == "ctrl":
+                        translated_parts.append("Control")
+                    elif p == "alt":
+                        translated_parts.append("Alt")
+                    elif p == "shift":
+                        translated_parts.append("Shift")
+                    elif p in ("meta", "win", "command", "cmd"):
+                        translated_parts.append("Meta")
+                    elif p in ("return", "enter"):
+                        translated_parts.append("Enter")
                     else:
-                        translated_parts.append(part.strip())
-            
-            final_key = "+".join(translated_parts)
-            page.keyboard.press(final_key)
+                        if len(p) > 1:
+                            # 針對 Playwright 的特定按鍵進行首字母大寫轉換（如 ArrowRight）
+                            translated_parts.append(part.strip().capitalize())
+                        else:
+                            translated_parts.append(part.strip())
+                
+                final_key = "+".join(translated_parts)
+                page.keyboard.press(final_key)
     elif action == "left_click_drag":
         page.mouse.down()
         page.mouse.move(actual_x, actual_y)

@@ -483,6 +483,14 @@ def main():
         is_keyboard_task = any(kw in user_task.lower() or kw in extra_instructions.lower() for kw in ["keyboard", "tab", "focus", "按鍵", "鍵盤", "焦點"])
         if is_keyboard_task:
             print("[*] 偵測到鍵盤或焦點相關任務，啟動本地 Focus-Path 焦點路徑掃描器...")
+            
+            # 等待前端 React/JS 框架渲染 DOM 完成
+            try:
+                page.wait_for_load_state("networkidle", timeout=3000)
+            except Exception:
+                pass
+            page.wait_for_timeout(2000)  # 保險等待 2 秒以防動態加載延遲
+            
             focus_map = scan_focus_path(page)
             if focus_map:
                 print(f"[✓] 掃描完成！共尋找到 {len(focus_map)} 個可聚焦元素。")
@@ -499,7 +507,12 @@ def main():
                     )
                 
                 focus_map_text = "\n".join(table_lines)
-                extra_instructions += f"\n\n{focus_map_text}\n\n**請注意：上表為本地直接對所有 DOM 元素進行 focus() 後所得的資料。如果上表中有任何互動元素沒有顯示有效的 outline（即 outline-style 為 none），或者某些應有的元素不在上表中（無法被 Tab 聚焦），這代表可能違反 WCAG 2.4.7 (Focus Visible) 或 2.1.1 (Keyboard)。請優先參照上表的坐標與順序來規劃您的驗證操作。**"
+                extra_instructions += f"\n\n{focus_map_text}\n\n**【⚠️ 核心操作指示：請嚴格遵守以節省 Token 且確保無障礙檢測準確性】**\n" \
+                                      f"1. **對照視覺與地圖 (關鍵)**：上表為本地能被 focus() 的元素。請仔細觀察螢幕截圖中的所有「視覺上可互動元素」（例如選單、按鈕、以及特別注意分頁標籤如 **IPv4/IPv6**、**2.4GHz/5GHz** 等）。如果截圖中看得見某個互動元素，但它**不在**上表的 Focus Map 中，代表該元素「完全無法被鍵盤聚焦」，這是嚴重的 **WCAG 2.1.1 (Keyboard) 違規**！請直接在結論中指出此違規，並說明哪些元素缺失。\n" \
+                                      f"2. **禁止無意義遍歷**：你**絕對不需要**手動按 Tab 鍵逐一走過上表每一個正常的元素！請直接利用 Focus Map 進行靜態對照與分析。\n" \
+                                      f"3. **針對疑點標靶測試**：你**只需要針對有疑慮的 1~2 個特定元素**（例如有視覺標籤但地圖中缺失的元素，或是地圖中顯示 `outline: none` 的元素）進行鍵盤按鍵或點擊實體切換，以驗證其是否可以被 Enter (Return) 鍵激活，或確認是否真的無法聚焦。\n" \
+                                      f"4. **多鍵發送捷徑**：如果你需要按多次 Tab 鍵來到達某個元素，你可以將按鍵以空格分隔在同一個指令中發送（例如：`\"text\": \"Tab Tab Tab Tab\"`），系統會在一回合內連續按鍵，請多加利用以節省回合數。\n" \
+                                      f"5. **控制在 5-10 回合結束**：驗證完這 1~2 個點後，**請立即宣告測試完畢並結束操作，並給出精確的 PASS/FAIL 結論**。整個任務請務必控制在 **5 ~ 10 回合內**完成。**"
                 
                 report_file.write(f"\n### 🔍 自動掃描焦點地圖\n已自動掃描整頁可聚焦元素，共發現 {len(focus_map)} 個元素，詳細焦點順序地圖已注入 AI 上下文中。\n")
                 report_file.flush()

@@ -181,10 +181,39 @@ class ClaudeAgent:
                 else:
                     msg["content"][j]["content"][k] = replacement
 
+    def _build_system_prompt(self) -> str:
+        """
+        整合 prompts.py 中的系統提示詞，包含角色特徵、行為原則與例外處理。
+        """
+        from prompts import SYSTEM_PROMPTS, BEHAVIOR_GUIDELINES, SITUATION_HANDLERS, OUTPUT_FORMATS
+        prompt_parts = []
+        
+        # 1. 系統角色
+        if self.role in SYSTEM_PROMPTS:
+            prompt_parts.append(SYSTEM_PROMPTS[self.role])
+        
+        # 2. 行為指引 (包含死循環停損原則)
+        if self.behavior in BEHAVIOR_GUIDELINES:
+            prompt_parts.append(BEHAVIOR_GUIDELINES[self.behavior])
+            
+        # 3. 特殊情境處理
+        prompt_parts.append("\n【特殊情境處理】")
+        for handler in SITUATION_HANDLERS.values():
+            prompt_parts.append(handler)
+            
+        # 4. 輸出格式
+        if self.output_format in OUTPUT_FORMATS:
+            prompt_parts.append(f"\n【回報格式】{OUTPUT_FORMATS[self.output_format]}")
+            
+        return "\n\n".join(prompt_parts)
+
     def _create_claude_response(self):
         """呼叫 Claude Messages API 並轉換為統一互動格式"""
         # 執行歷史截圖剪裁以節約 Token 消耗
         self._prune_history_images()
+        
+        # 建立完整的系統提示詞 (包含行為原則與停損指南)
+        system_prompt = self._build_system_prompt()
         
         # 自動根據模型或自訂配置調整 tool type 與 beta header
         tool_type = CLAUDE_COMPUTER_TOOL_TYPE
@@ -235,6 +264,7 @@ class ClaudeAgent:
         response = self.client.beta.messages.create(
             model=self.model,
             max_tokens=4096,
+            system=system_prompt,
             messages=self.messages,
             tools=tools,
             betas=betas
