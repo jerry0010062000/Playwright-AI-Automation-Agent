@@ -52,6 +52,23 @@ try:
 except ImportError:
     pass
 
+CLAUDE_COMPUTER_TOOL_TYPE = os.getenv("CLAUDE_COMPUTER_TOOL_TYPE", "computer_20251124").strip()
+CLAUDE_COMPUTER_BETAS = os.getenv("CLAUDE_COMPUTER_BETAS", "computer-use-2025-11-24").strip()
+
+try:
+    from config_local import CLAUDE_COMPUTER_TOOL_TYPE as LOCAL_TOOL_TYPE
+    if LOCAL_TOOL_TYPE:
+        CLAUDE_COMPUTER_TOOL_TYPE = LOCAL_TOOL_TYPE.strip()
+except ImportError:
+    pass
+
+try:
+    from config_local import CLAUDE_COMPUTER_BETAS as LOCAL_BETAS
+    if LOCAL_BETAS:
+        CLAUDE_COMPUTER_BETAS = LOCAL_BETAS.strip()
+except ImportError:
+    pass
+
 
 
 

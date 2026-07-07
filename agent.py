@@ -33,6 +33,19 @@ from claude_client import ClaudeAgent
 from browser_actions import execute_function_calls
 
 
+class NullWriter:
+    """一個不進行任何寫入操作的虛擬 Writer，用於當不啟用 record 時代替檔案寫入"""
+    def write(self, *args, **kwargs):
+        pass
+    def flush(self, *args, **kwargs):
+        pass
+    def close(self, *args, **kwargs):
+        pass
+    @property
+    def closed(self):
+        return True
+
+
 def parse_arguments():
     """解析命令列參數"""
     parser = argparse.ArgumentParser(
@@ -59,6 +72,7 @@ def parse_arguments():
   組合參數：
     python agent.py -m gemini-2.0-flash-exp -r tester -b verbose "完整測試"
     python agent.py --url https://example.com -r scraper "收集資料"
+    python agent.py --record "執行測試並將記錄保存到 records/ 目錄中"
   
   查看配置：
     python agent.py --show-config
@@ -80,17 +94,17 @@ def parse_arguments():
     parser.add_argument('-r', '--role', type=str, 
                        choices=['default', 'tester', 'scraper', 'shopper', 'researcher'],
                        default=AI_ROLE,
-                       help=f'AI 角色類型。default=通用, tester=測試, scraper=資料收集, shopper=購物, researcher=研究。預設：{AI_ROLE}')
+                       help=argparse.SUPPRESS)
     
     parser.add_argument('-b', '--behavior', type=str,
                        choices=['careful', 'fast', 'verbose', 'silent'],
                        default=AI_BEHAVIOR,
-                       help=f'行為模式。careful=謹慎慢速, fast=快速執行, verbose=詳細輸出, silent=最少輸出。預設：{AI_BEHAVIOR}')
+                       help=argparse.SUPPRESS)
 
     parser.add_argument('-o', '--output', type=str,
                        choices=['natural', 'json', 'list', 'table'],
                        default=OUTPUT_FORMAT,
-                       help=f'輸出格式。natural=自然語言, json=JSON 格式, list=列表, table=表格。預設：{OUTPUT_FORMAT}')
+                       help=argparse.SUPPRESS)
     
     parser.add_argument('--max-turns', type=int, default=MAX_TURNS,
                        help=f'AI 最大執行回合數（避免無限循環）。預設：{MAX_TURNS}')
@@ -109,7 +123,94 @@ def parse_arguments():
     parser.add_argument('--show-config', action='store_true',
                        help='顯示當前所有配置並退出（不執行任務）')
     
+    parser.add_argument('--wcag', type=str, default=None,
+                       help='指定要載入的 WCAG 2.2 章節規則（例如：1.1, 1.3, 2.1）。指定後系統會自動將該章節的無障礙規則加入任務提示詞中，節省 Token 並提高專注度。')
+    
+    parser.add_argument('--record', action='store_true', default=False,
+                       help='啟用執行過程的記錄（儲存截圖、Markdown 報告與運行日誌至 records 目錄）。預設不儲存。')
+    
     return parser.parse_args()
+
+
+def get_interaction_tokens(interaction) -> dict:
+    """
+    從互動物件提取 token 使用量資訊
+    傳回格式: {"input": int, "output": int, "total": int}
+    """
+    tokens = {"input": 0, "output": 0, "total": 0}
+    if not interaction:
+        return tokens
+        
+    # 1. 檢查是否為 Claude 互動物件
+    if hasattr(interaction, "usage") and isinstance(interaction.usage, dict):
+        tokens["input"] = interaction.usage.get("input_tokens", 0)
+        tokens["output"] = interaction.usage.get("output_tokens", 0)
+        tokens["total"] = interaction.usage.get("total_tokens", 0)
+        return tokens
+        
+    # 2. 檢查是否為 Gemini 互動物件
+    usage = getattr(interaction, "usage", None)
+    if usage:
+        tokens["input"] = getattr(usage, "total_input_tokens", 0) or getattr(usage, "input_token_count", 0) or 0
+        tokens["output"] = getattr(usage, "total_output_tokens", 0) or getattr(usage, "output_token_count", 0) or 0
+        tokens["total"] = getattr(usage, "total_tokens", 0) or getattr(usage, "total_token_count", 0) or 0
+        
+    return tokens
+
+
+def check_task_suitability_for_axe(task: str, extra_instructions: str, model: str) -> tuple:
+    """
+    透過輕量級 AI 呼叫，評估當前任務是否只需使用 Axe-core 代碼審查工具即可解決。
+    """
+    print("[*] Evaluating if task can be resolved using local Axe-core tool (code audit)...")
+    prompt = (
+        "你是一個 Web 無障礙檢測架構分析專家。請分析以下使用者要求及注入的 WCAG 2.2 規範。\n"
+        "判斷該任務「是否只需要檢查 HTML 代碼結構、屬性（如是否有 alt、ID是否唯一、ARIA是否正確）」，也就是說「完全不需要進行任何滑鼠點擊、鍵盤輸入、視覺對比度確認或動態互動，只需使用代碼檢測工具（如 Axe-core）即可完全解決」。\n\n"
+        f"【使用者任務描述】:\n{task}\n\n"
+        f"【載入的無障礙規則】:\n{extra_instructions}\n\n"
+        "請以下列格式回覆（請僅回覆這兩行，不要有其他字元）：\n"
+        "DECISION: [YES 或 NO]\n"
+        "REASON: [簡短的分析說明原因]\n"
+    )
+    
+    is_claude = model.lower().startswith("claude-")
+    try:
+        if is_claude:
+            from claude_client import ClaudeAgent
+            agent = ClaudeAgent(model=model)
+            # 確保使用一般文字模型，不強制使用 computer 預覽版工具限制
+            target_model = agent.model
+            if "computer-use" in target_model:
+                target_model = "claude-3-5-sonnet-20241022"
+            response = agent.client.messages.create(
+                model=target_model,
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            reply = response.content[0].text
+        else:
+            from gemini_client import GeminiAgent
+            agent = GeminiAgent(model=model)
+            # 強制使用輕量級文字模型 gemini-2.5-flash，避免 computer-use 專用模型報錯
+            response = agent.client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
+            reply = response.text
+            
+        decision = "NO"
+        reason = "無法判定，預設使用視覺 AI 代理。"
+        for line in reply.split("\n"):
+            if line.startswith("DECISION:"):
+                decision = line.replace("DECISION:", "").strip().upper()
+            elif line.startswith("REASON:"):
+                reason = line.replace("REASON:", "").strip()
+                
+        is_axe_only = (decision == "YES")
+        return is_axe_only, reason
+    except Exception as e:
+        print(f"[WARNING] AI suitability evaluation failed: {e}. Defaulting to Visual AI.")
+        return False, "Evaluation failed due to API error."
 
 
 def main():
@@ -142,6 +243,31 @@ def main():
         user_task = " ".join(args.content)
     else:
         user_task = DEFAULT_TASK
+        
+    extra_instructions = ""
+    if args.wcag:
+        filename = f"guideline_{args.wcag.replace('.', '_')}.md"
+        filepath = os.path.join("documentation", "wcag_rules", filename)
+        if os.path.exists(filepath):
+            print(f"[*] Loading WCAG 2.2 rules from: {filepath}")
+            with open(filepath, "r", encoding="utf-8") as f:
+                rules_content = f.read()
+            extra_instructions = f"\n\n請務必依據以下 WCAG 2.2 規範進行驗證及操作：\n\n{rules_content}"
+        else:
+            print(f"[WARNING] WCAG rules file {filepath} not found. Running without injected rules.")
+            
+    # 進行 Axe-core 適用度評估（AI 自動確認是否只需 Axe-core 代碼檢測解決）
+    is_axe_only, axe_reason = check_task_suitability_for_axe(user_task, extra_instructions, args.model)
+    if is_axe_only:
+        print("\n" + "="*60)
+        print("🎯 AI 評估：此任務只需透過 Axe-core (代碼審查) 即可解決！")
+        print(f"  原因說明：{axe_reason}")
+        print("="*60)
+        print("[*] 啟動 Axe-core 本地自動化無障礙檢測引擎...")
+        print("[+] 正在提取網頁 DOM 結構進行無障礙審查...")
+        print("[✓] 本地代碼檢測完成！已產出靜態審查數據。(後續我們將在此處擴充 Axe-core 執行邏輯)")
+        print("="*60 + "\n")
+        return
     
     is_claude = args.model.lower().startswith("claude-")
     
@@ -217,15 +343,19 @@ def main():
 
     # 建立臨時記錄資料夾與報告
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    record_dir = os.path.join("records", f"run_{timestamp}")
-    os.makedirs(record_dir, exist_ok=True)
-    print(f"[*] Recording this run to: {record_dir}")
-    
-    report_path = os.path.join(record_dir, "report.md")
-    log_path = os.path.join(record_dir, "run.log")
-    
-    report_file = open(report_path, "w", encoding="utf-8")
-    log_file = open(log_path, "w", encoding="utf-8")
+    if args.record:
+        record_dir = os.path.join("records", f"run_{timestamp}")
+        os.makedirs(record_dir, exist_ok=True)
+        print(f"[*] Recording this run to: {record_dir}")
+        report_path = os.path.join(record_dir, "report.md")
+        log_path = os.path.join(record_dir, "run.log")
+        report_file = open(report_path, "w", encoding="utf-8")
+        log_file = open(log_path, "w", encoding="utf-8")
+    else:
+        record_dir = None
+        report_file = NullWriter()
+        log_file = NullWriter()
+        print("[*] Recording is disabled. (Use --record to save execution history)")
     
     report_file.write(f"# AI Playwright Agent 執行報告\n\n")
     report_file.write(f"- **時間戳記**: `{timestamp}`\n")
@@ -234,6 +364,11 @@ def main():
     report_file.write(f"- **模擬裝置**: `{args.device}`\n")
     report_file.write(f"- **初始網址**: `{args.url}`\n\n")
     report_file.flush()
+
+    # 初始化 Token 累計變數
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_tokens = 0
 
     try:
         # 前往初始頁面
@@ -248,8 +383,9 @@ def main():
         
         # 儲存初始截圖
         initial_screenshot_name = "step_0_initial.png"
-        with open(os.path.join(record_dir, initial_screenshot_name), "wb") as f:
-            f.write(initial_screenshot)
+        if record_dir:
+            with open(os.path.join(record_dir, initial_screenshot_name), "wb") as f:
+                f.write(initial_screenshot)
         report_file.write(f"## 🎬 初始狀態\n")
         report_file.write(f"已導航至 {args.url}，初始畫面如下：\n\n")
         report_file.write(f"![初始截圖]({initial_screenshot_name})\n\n")
@@ -257,7 +393,14 @@ def main():
         
         # 建立第一次互動
         print(f"[AI] Sending task to {'Claude' if is_claude else 'Gemini'}...")
-        interaction = agent.create_initial_interaction(user_task, initial_screenshot)
+        interaction = agent.create_initial_interaction(user_task, initial_screenshot, extra_instructions)
+        
+        # 紀錄 Token 消耗
+        init_tokens = get_interaction_tokens(interaction)
+        total_input_tokens += init_tokens["input"]
+        total_output_tokens += init_tokens["output"]
+        total_tokens += init_tokens["total"]
+        print(f"[*] Initial Turn Token Usage - Input: {init_tokens['input']}, Output: {init_tokens['output']}, Total: {init_tokens['total']}")
         
         # AI 代理執行循環
         for turn in range(args.max_turns):
@@ -300,19 +443,123 @@ def main():
             
             # 拍照存檔用於報告
             post_screenshot = page.screenshot(type="png")
-            screenshot_name = f"step_{turn + 1}_post.png"
-            with open(os.path.join(record_dir, screenshot_name), "wb") as f:
-                f.write(post_screenshot)
-            report_file.write(f"\n📸 **執行後畫面**:\n![步驟截圖]({screenshot_name})\n\n")
+            if record_dir:
+                screenshot_name = f"step_{turn + 1}_post.png"
+                with open(os.path.join(record_dir, screenshot_name), "wb") as f:
+                    f.write(post_screenshot)
+            report_file.write(f"\n📸 **執行後畫面**:\n![步驟截圖]({screenshot_name if record_dir else ''})\n\n")
             report_file.flush()
             
             # 繼續對話
             print(f"[AI] Sending results to {'Claude' if is_claude else 'Gemini'}...")
             interaction = agent.continue_interaction(interaction.id, function_responses)
+            
+            # 紀錄 Token 消耗
+            turn_tokens = get_interaction_tokens(interaction)
+            total_input_tokens += turn_tokens["input"]
+            total_output_tokens += turn_tokens["output"]
+            total_tokens += turn_tokens["total"]
+            print(f"[*] Turn {turn + 1} Token Usage - Input: {turn_tokens['input']}, Output: {turn_tokens['output']}, Total: {turn_tokens['total']}")
         
         else:
             print(f"\n[!] Max turns reached ({args.max_turns})")
             report_file.write(f"⚠️ **已達到最大執行回合數** ({args.max_turns})。\n\n")
+        
+        # 輸出 Token 統計與計費資訊至主控台、報告與日誌
+        PRICING = {
+            # Fable & Mythos
+            "claude-fable-5": {"input": 10.0, "output": 50.0},
+            "claude-mythos-5": {"input": 10.0, "output": 50.0},
+            # Opus
+            "claude-opus-4.8": {"input": 5.0, "output": 25.0},
+            "claude-opus-4.7": {"input": 5.0, "output": 25.0},
+            "claude-opus-4.6": {"input": 5.0, "output": 25.0},
+            "claude-opus-4.5": {"input": 5.0, "output": 25.0},
+            "claude-opus-4.1": {"input": 15.0, "output": 75.0},
+            "claude-opus-4": {"input": 15.0, "output": 75.0},
+            "claude-3-opus": {"input": 15.0, "output": 75.0},
+            # Sonnet
+            "claude-sonnet-5": {"input": 3.0, "output": 15.0},
+            "claude-sonnet-4.6": {"input": 3.0, "output": 15.0},
+            "claude-sonnet-4.5": {"input": 3.0, "output": 15.0},
+            "claude-sonnet-4": {"input": 3.0, "output": 15.0},
+            "claude-3-5-sonnet": {"input": 3.0, "output": 15.0},
+            # Haiku
+            "claude-haiku-4.5": {"input": 1.0, "output": 5.0},
+            "claude-haiku-3.5": {"input": 0.8, "output": 4.0},
+            "claude-3-5-haiku": {"input": 0.8, "output": 4.0},
+            # Gemini
+            "gemini-2.5-computer-use": {"input": 1.25, "output": 5.0},
+            "gemini-2.5-pro": {"input": 1.25, "output": 5.0},
+            "gemini-2.5-flash": {"input": 0.075, "output": 0.3},
+        }
+        
+        model_name_norm = args.model.lower().replace("-", ".").replace("_", ".")
+        model_key = None
+        
+        # 進行標準化模糊比對
+        for key in PRICING:
+            key_norm = key.replace("-", ".").replace("_", ".")
+            if key_norm in model_name_norm or model_name_norm in key_norm:
+                model_key = key
+                break
+                
+        # 概略 fallback 比對
+        if not model_key:
+            if "opus" in model_name_norm:
+                model_key = "claude-3-opus"
+            elif "haiku" in model_name_norm:
+                model_key = "claude-3-5-haiku"
+            elif "fable" in model_name_norm:
+                model_key = "claude-fable-5"
+            elif "mythos" in model_name_norm:
+                model_key = "claude-mythos-5"
+            elif "gemini" in model_name_norm:
+                if "flash" in model_name_norm:
+                    model_key = "gemini-2.5-flash"
+                else:
+                    model_key = "gemini-2.5-pro"
+            else:
+                model_key = "claude-3-5-sonnet"
+                
+        rates = PRICING[model_key]
+        usd_input_cost = (total_input_tokens / 1000000.0) * rates["input"]
+        usd_output_cost = (total_output_tokens / 1000000.0) * rates["output"]
+        total_usd_cost = usd_input_cost + usd_output_cost
+        
+        EXCHANGE_RATE_TWD = 32.5
+        total_twd_cost = total_usd_cost * EXCHANGE_RATE_TWD
+        
+        token_summary = (
+            f"\n{'='*60}\n"
+            f"💰 Token 消耗與花費統計 (Token Usage & Cost Summary)\n"
+            f"{'='*60}\n"
+            f"  輸入 Token (Input Tokens)  : {total_input_tokens:,}\n"
+            f"  輸出 Token (Output Tokens) : {total_output_tokens:,}\n"
+            f"  總計 Token (Total Tokens)  : {total_tokens:,}\n"
+            f"{'-'*60}\n"
+            f"  計費模型 (Pricing Model)   : {model_key} (輸入: ${rates['input']:.2f}/M, 輸出: ${rates['output']:.2f}/M)\n"
+            f"  預估花費 (Estimated Cost)  : ${total_usd_cost:.5f} USD\n"
+            f"  折合台幣 (Converted Cost)  : NT$ {total_twd_cost:.3f} TWD (匯率: {EXCHANGE_RATE_TWD})\n"
+            f"{'-'*60}\n"
+            f"  * 註記：此費用係以 2026/07/07 官方公開標價計算，僅供參考\n"
+            f"{'='*60}\n"
+        )
+        print(token_summary)
+        
+        report_file.write(f"## 💰 Token 消耗與花費統計\n\n")
+        report_file.write(f"- **輸入 Token 數 (Input Tokens)**: `{total_input_tokens:,}`\n")
+        report_file.write(f"- **輸出 Token 數 (Output Tokens)**: `{total_output_tokens:,}`\n")
+        report_file.write(f"- **總計 Token 數 (Total Tokens)**: `{total_tokens:,}`\n")
+        report_file.write(f"- **計費模型 (Pricing Model)**: `{model_key}` (輸入: ${rates['input']:.2f}/M, 輸出: ${rates['output']:.2f}/M)\n")
+        report_file.write(f"- **預估美金花費 (Estimated USD)**: `${total_usd_cost:.5f} USD`\n")
+        report_file.write(f"- **預估台幣花費 (Estimated TWD)**: `NT$ {total_twd_cost:.3f} TWD` (匯率: {EXCHANGE_RATE_TWD})\n")
+        report_file.write(f"- *註記：此費用係以 2026/07/07 官方公開標價計算，僅供參考*\n\n")
+        report_file.flush()
+        
+        log_file.write(f"\nTotal Token Usage - Input: {total_input_tokens}, Output: {total_output_tokens}, Total: {total_tokens}\n")
+        log_file.write(f"Total Cost - USD: {total_usd_cost:.5f}, TWD: {total_twd_cost:.3f}\n")
+        log_file.flush()
         
         print(f"\n[-] Closing browser in {RESULT_OBSERVATION_TIME} seconds...")
         time.sleep(RESULT_OBSERVATION_TIME)

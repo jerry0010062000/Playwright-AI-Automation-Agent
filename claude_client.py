@@ -11,7 +11,9 @@ from config import (
     CLAUDE_API_KEY,
     CLAUDE_BASE_URL,
     CLAUDE_AUTH_TOKEN,
-    CLAUDE_DISABLE_EXPERIMENTAL_BETAS
+    CLAUDE_DISABLE_EXPERIMENTAL_BETAS,
+    CLAUDE_COMPUTER_TOOL_TYPE,
+    CLAUDE_COMPUTER_BETAS
 )
 
 
@@ -34,9 +36,10 @@ class ClaudeStep:
 
 class ClaudeInteraction:
     """模擬 Gemini Interaction 回應物件"""
-    def __init__(self, id: str, steps: list):
+    def __init__(self, id: str, steps: list, usage: dict = None):
         self.id = id
         self.steps = steps
+        self.usage = usage or {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
 
 class ClaudeAgent:
@@ -148,13 +151,55 @@ class ClaudeAgent:
         
         return self._create_claude_response()
 
+    def _prune_history_images(self):
+        """
+        修剪歷史訊息中的舊截圖，只保留最後一回合（最新）的截圖，以節省 Token。
+        為了避免破壞 JSON 結構，我們將舊截圖物件改為一個簡短的提示文字區塊。
+        """
+        image_occurrences = []
+        for i, msg in enumerate(self.messages):
+            content = msg.get("content")
+            if isinstance(content, list):
+                for j, block in enumerate(content):
+                    if block.get("type") == "image":
+                        image_occurrences.append((i, j, None))
+                    elif block.get("type") == "tool_result" and isinstance(block.get("content"), list):
+                        for k, sub_block in enumerate(block["content"]):
+                            if sub_block.get("type") == "image":
+                                image_occurrences.append((i, j, k))
+                                
+        if len(image_occurrences) > 1:
+            # 除了最後一個圖片，其餘圖片通通更換為提示文字
+            for i, j, k in image_occurrences[:-1]:
+                msg = self.messages[i]
+                replacement = {
+                    "type": "text",
+                    "text": "[Screenshot of this historical step removed to save tokens]"
+                }
+                if k is None:
+                    msg["content"][j] = replacement
+                else:
+                    msg["content"][j]["content"][k] = replacement
+
     def _create_claude_response(self):
         """呼叫 Claude Messages API 並轉換為統一互動格式"""
+        # 執行歷史截圖剪裁以節約 Token 消耗
+        self._prune_history_images()
+        
+        # 自動根據模型或自訂配置調整 tool type 與 beta header
+        tool_type = CLAUDE_COMPUTER_TOOL_TYPE
+        beta_header = CLAUDE_COMPUTER_BETAS
+        
+        # 如果模型為 claude-sonnet-4-5 且未使用自訂設定，自動 fallback 到官方支援的 20250124 版本
+        if "4-5" in self.model and CLAUDE_COMPUTER_TOOL_TYPE == "computer_20251124":
+            tool_type = "computer_20250124"
+            beta_header = "computer-use-2025-01-24"
+
         # 配置 Anthropic 預設的 Computer Use 工具
         # 為了使運作與截圖精確匹配，寬度設為 1024，高度設為 768
         tools = [
             {
-                "type": "computer_20251124",
+                "type": tool_type,
                 "name": "computer",
                 "display_width_px": 1024,
                 "display_height_px": 768,
@@ -163,7 +208,7 @@ class ClaudeAgent:
         ]
         
         # 根據環境變數或配置決定是否傳送 beta 標頭（預設啟用 computer-use beta）
-        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else ["computer-use-2025-11-24"]
+        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [beta_header]
         
         response = self.client.beta.messages.create(
             model=self.model,
@@ -206,9 +251,20 @@ class ClaudeAgent:
             "content": assistant_content
         })
         
+        # 提取 token 使用量
+        usage_info = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0
+        }
+        if hasattr(response, "usage") and response.usage:
+            usage_info["input_tokens"] = getattr(response.usage, "input_tokens", 0)
+            usage_info["output_tokens"] = getattr(response.usage, "output_tokens", 0)
+            usage_info["total_tokens"] = usage_info["input_tokens"] + usage_info["output_tokens"]
+            
         # 互動 ID 使用歷史紀錄長度字串表示
         interaction_id = str(len(self.messages))
-        return ClaudeInteraction(id=interaction_id, steps=steps)
+        return ClaudeInteraction(id=interaction_id, steps=steps, usage=usage_info)
 
     def set_role(self, role: str):
         self.role = role
