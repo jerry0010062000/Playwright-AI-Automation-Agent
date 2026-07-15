@@ -13,7 +13,8 @@ from config import (
     CLAUDE_AUTH_TOKEN,
     CLAUDE_DISABLE_EXPERIMENTAL_BETAS,
     CLAUDE_COMPUTER_TOOL_TYPE,
-    CLAUDE_COMPUTER_BETAS
+    CLAUDE_COMPUTER_BETAS,
+    CLAUDE_USE_GATEWAY
 )
 
 
@@ -55,9 +56,13 @@ class ClaudeAgent:
         """
         初始化 Claude 客戶端
         """
-        # 決定使用的 API Key/Token：優先使用 CLAUDE_AUTH_TOKEN，若無則使用 CLAUDE_API_KEY
-        api_key = CLAUDE_AUTH_TOKEN or CLAUDE_API_KEY
-        base_url = CLAUDE_BASE_URL or None
+        # 決定使用的 API Key/Token與 Base URL（基於是否啟用閘道代理配置）
+        if CLAUDE_USE_GATEWAY:
+            api_key = CLAUDE_AUTH_TOKEN or CLAUDE_API_KEY
+            base_url = CLAUDE_BASE_URL or None
+        else:
+            api_key = CLAUDE_API_KEY
+            base_url = None
         
         # 初始化 Claude 客戶端，設定自訂 Base URL
         self.client = anthropic.Anthropic(
@@ -150,6 +155,69 @@ class ClaudeAgent:
         })
         
         return self._create_claude_response()
+
+    def get_final_summary(self, previous_interaction_id: str) -> str:
+        """
+        當達到最大回合數時，向 AI 要求對當前狀態與歷史檢測進行總結結論
+        """
+        summary_text = "目前已達到最大執行回合數 (Max Turns)。請就您目前所觀察到的網頁狀態、已執行的檢測步驟與發現的無障礙問題，進行一次最終的總結評估，並寫出結論與改善建議項目。"
+        
+        user_content = []
+        
+        # 檢查最後一條 assistant 訊息是否有未處理的 tool_use
+        if self.messages and self.messages[-1]["role"] == "assistant":
+            last_content = self.messages[-1]["content"]
+            if isinstance(last_content, list):
+                # 尋找所有 tool_use 區塊
+                tool_uses = []
+                for block in last_content:
+                    b_type = getattr(block, "type", "") or (block.get("type") if isinstance(block, dict) else "")
+                    if b_type == "tool_use":
+                        tool_uses.append(block)
+                        
+                for block in tool_uses:
+                    tool_use_id = getattr(block, "id", None) or (block.get("id") if isinstance(block, dict) else None)
+                    if tool_use_id:
+                        user_content.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": "Task stopped due to max turns. Summary requested."
+                        })
+                        
+        # 加上總結請求文字
+        user_content.append({
+            "type": "text",
+            "text": summary_text
+        })
+        
+        self.messages.append({
+            "role": "user",
+            "content": user_content
+        })
+        
+        system_prompt = self._build_system_prompt()
+        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [CLAUDE_COMPUTER_BETAS]
+        if "4-5" in self.model and CLAUDE_COMPUTER_TOOL_TYPE == "computer_20251124":
+            betas = ["computer-use-2025-01-24"]
+
+        response = self.client.beta.messages.create(
+            model=self.model,
+            max_tokens=2048,
+            system=system_prompt,
+            messages=self.messages,
+            betas=betas
+        )
+        
+        tokens = {"input": 0, "output": 0, "total": 0}
+        if hasattr(response, "usage") and response.usage:
+            tokens["input"] = getattr(response.usage, "input_tokens", 0)
+            tokens["output"] = getattr(response.usage, "output_tokens", 0)
+            tokens["total"] = tokens["input"] + tokens["output"]
+            
+        return {
+            "summary": summary,
+            "usage": tokens
+        }
 
     def _prune_history_images(self):
         """
@@ -255,12 +323,50 @@ class ClaudeAgent:
                     "type": "object",
                     "properties": {}
                 }
+            },
+            {
+                "name": "evaluate_javascript",
+                "description": "Evaluate a JavaScript expression on the current webpage and return the result. Use this to inspect the DOM, query elements, check media elements, or retrieve page state without needing DevTools.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "script": {
+                            "type": "string",
+                            "description": "The JavaScript expression or function body to evaluate (e.g. 'document.querySelectorAll(\"video, audio\").length')."
+                        }
+                    },
+                    "required": ["script"]
+                }
+            },
+            {
+                "name": "run_axe_audit",
+                "description": "Run the local Axe-core accessibility auditing engine on the current webpage and return a JSON report of all WCAG violations.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            },
+            {
+                "name": "scan_focus_path",
+                "description": "Scan the current page to retrieve the focus map: all focusable elements, their visual coordinates, and outline styles to check keyboard accessibility (WCAG 2.1.1, 2.4.7).",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {}
+                }
             }
         ]
         
         # 根據環境變數或配置決定是否傳送 beta 標頭（預設啟用 computer-use beta）
         betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [beta_header]
         
+        # Diagnostic logging: only show summary and the last message details to prevent terminal bloat
+        print(f"[*] API Call: System Prompt Length = {len(system_prompt)} chars")
+        print(f"[*] API Call: Number of messages in history = {len(self.messages)}")
+        if self.messages:
+            last_msg = self.messages[-1]
+            last_msg_str = json.dumps(last_msg, ensure_ascii=False)
+            print(f"  - Latest Message ({last_msg['role']}): {len(last_msg_str)} chars")
+            
         response = self.client.beta.messages.create(
             model=self.model,
             max_tokens=4096,
@@ -364,3 +470,86 @@ class ClaudeAgent:
             for content_block in step.content 
             if content_block.type == "text"
         ])
+
+    def diagnose_static_audit(self, target_url: str, audit_data_text: str, screenshot_bytes: bytes, wcag_guideline: str = None) -> dict:
+        """
+        對靜態掃描結果進行一回合的智慧診斷，不帶任何 Tool，防止模型因擁有 Tool 宣告而只做初步回應
+        """
+        screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+        
+        system_prompt = (
+            "你是一個資深的網頁無障礙 (Accessibility) 檢測專家與開發顧問。\n"
+            "你的任務是根據所提供的網頁截圖與 Axe-core 檢測出的靜態違規數據，撰寫專業的無障礙評估報告與修復方向建議。\n"
+            "**請絕對不要嘗試使用或提及 any 瀏覽器操作工具**，你只需要作為一個分析器，直接產出最終的 Markdown 診斷報告。\n"
+            "報告請採用繁體中文（Traditional Chinese）。"
+        )
+        
+        wcag_instruction = ""
+        if wcag_guideline:
+            wcag_instruction = (
+                f"\n⚠️ **重要限制指示**：使用者目前僅針對無障礙指南 **WCAG {wcag_guideline}** 進行檢測，"
+                f"因此你的診斷、分析與優化方向**必須完全限制並聚焦於與 WCAG {wcag_guideline} 相關的要素**（例如若檢測 1.1，則僅分析非文字內容/圖片替代文字；若為 2.1，則僅聚焦鍵盤存取等）。"
+                f"請絕對不要提及或列出任何屬於其他無障礙章節（如鍵盤、焦點、對比度、動態更新等）的評估或修復方向建議！\n"
+            )
+            
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"目標網址: {target_url}\n{wcag_instruction}\n"
+                            f"以下是本地 Axe-core 掃描出的違規數據：\n\n{audit_data_text}\n\n"
+                            f"請為我們進行智慧診斷，撰寫一份 Markdown 報告。為了保持報告精簡，請嚴格遵守以下格式與限制：\n"
+                            f"1. **報告結構**：僅限包含『1. 執行摘要 (Executive Summary)』與『2. 智慧診斷與評估 (AI Diagnosis & Evaluation)』，僅在有實際違規項目時才包含『3. 修復方向建議 (Remediation Directions)』。\n"
+                            f"2. **❌ 絕對禁止贅字廢話**：請絕對不要撰寫任何『建議後續行動』、『結論/總結』、『結語』或『未來指引』等贅字廢話章節！寫完主體內容後請立即結束回答。\n"
+                            f"3. **無違規時省略修復建議**：若本次檢測無任何違規項目（0 違規），請完全省略『3. 修復方向建議』章節，僅撰寫前兩個章節即可。\n"
+                            f"4. **禁止代碼範例**：請給出清晰好理解的具體修復邏輯或屬性指引，**請絕對不要提供任何 HTML/CSS/JS 程式碼/代碼修改範例**。"
+                        )
+                    },
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": screenshot_base64
+                        }
+                    }
+                ]
+            }
+        ]
+        
+        # 取得與主對話相同的 beta header 配置，確保自訂閘道代理能成功進行路由分發
+        beta_header = CLAUDE_COMPUTER_BETAS
+        if "-20241022" in self.model or "sonnet" in self.model.lower():
+            beta_header = "computer-use-2025-01-24"
+        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [beta_header]
+
+        response = self.client.beta.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
+            betas=betas
+        )
+        
+        # 尋找其中的 text 區塊並串接
+        text_parts = []
+        for block in response.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+                
+        # 提取 Token 使用量
+        input_tokens = response.usage.input_tokens if hasattr(response, "usage") else 0
+        output_tokens = response.usage.output_tokens if hasattr(response, "usage") else 0
+        total_tokens = input_tokens + output_tokens
+        
+        return {
+            "text": "".join(text_parts),
+            "usage": {
+                "input": input_tokens,
+                "output": output_tokens,
+                "total": total_tokens
+            }
+        }

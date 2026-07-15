@@ -36,7 +36,18 @@ def execute_function_calls(interaction, page, screen_width: int, screen_height: 
         fname = function_call.name  # 函數名稱（如 click, type, navigate 等）
         args = function_call.arguments  # 函數參數
         
-        print(f"  → 執行動作: {fname}")
+        # 兼容性轉換：若 AI 模組直接將行為 (如 left_click) 當作函式名稱呼叫，將其轉換為 computer 動作
+        if fname in ("left_click", "double_click", "right_click", "middle_click", "mouse_hover", "type", "key", "left_click_drag", "screenshot"):
+            args = dict(args) if args else {}
+            args["action"] = fname
+            fname = "computer"
+        
+        if fname == "computer":
+            action = args.get("action")
+            print(f"  → 執行動作: computer ({action})")
+        else:
+            print(f"  → 執行動作: {fname}")
+            
         if "intent" in args:
             print(f"    意圖: {args['intent']}")
 
@@ -64,6 +75,28 @@ def execute_function_calls(interaction, page, screen_width: int, screen_height: 
             elif fname == "computer":
                 _handle_claude_computer_action(page, args, screen_width, screen_height)
             
+            elif fname == "evaluate_javascript":
+                script = args.get("script")
+                try:
+                    js_result = page.evaluate(script)
+                    action_result = {"result": js_result}
+                except Exception as e:
+                    action_result = {"error": str(e)}
+                    
+            elif fname == "run_axe_audit":
+                try:
+                    axe_results = run_axe_audit(page)
+                    action_result = {"violations": axe_results.get("violations", [])}
+                except Exception as e:
+                    action_result = {"error": str(e)}
+                    
+            elif fname == "scan_focus_path":
+                try:
+                    focus_map = scan_focus_path(page)
+                    action_result = {"focus_map": focus_map}
+                except Exception as e:
+                    action_result = {"error": str(e)}
+            
             else:
                 print(f"⚠️  警告: 未處理的函數 {fname}")
 
@@ -75,6 +108,23 @@ def execute_function_calls(interaction, page, screen_width: int, screen_height: 
             # 捕捉執行錯誤
             print(f"❌ 執行 {fname} 時發生錯誤: {e}")
             action_result = {"error": str(e)}
+
+        # 進行結果文本保護：如果回傳的 JSON 字符串太大，則進行截斷，防止 Token 溢出導致模型崩潰
+        if action_result:
+            try:
+                import json
+                serialized = json.dumps(action_result, ensure_ascii=False)
+                # 設定最大長度上限為 15,000 個字元 (大約 3,000 - 4,000 Tokens)
+                MAX_RESULT_CHARS = 15000
+                if len(serialized) > MAX_RESULT_CHARS:
+                    print(f"\n[WARNING] 偵測到大型 Tool 回傳數據 ({len(serialized)} chars)，自動進行截斷以保護 Token 上下文。")
+                    # 將原結果轉換成包含部分截斷資訊的字典，避免模型 Context 溢出
+                    action_result = {
+                        "warning": f"Output truncated from {len(serialized)} characters to prevent context length overflow. Please refine your script/query to focus on leaf nodes or subset of nodes.",
+                        "result_preview": serialized[:MAX_RESULT_CHARS] + "\n\n... [TRUNCATED] ..."
+                    }
+            except Exception:
+                pass
 
         # 記錄執行結果
         results.append((fname, function_call.id, action_result))
@@ -231,9 +281,28 @@ def _handle_claude_computer_action(page, args: dict, screen_width: int, screen_h
     actual_x = 0
     actual_y = 0
     if coord:
-        # 將 1024x768 的座標比例縮放到實際螢幕尺寸
-        actual_x = int(coord[0] * screen_width / 1024)
-        actual_y = int(coord[1] * screen_height / 768)
+        # 強健解析：若中轉 API 將陣列傳成字串型態 (如 "[70, 177]")，對其進行解碼與還原
+        if isinstance(coord, str):
+            coord = coord.strip()
+            try:
+                import json
+                parsed_coord = json.loads(coord)
+                if isinstance(parsed_coord, list):
+                    coord = parsed_coord
+            except Exception:
+                cleaned = coord.replace("[", "").replace("]", "").replace(" ", "")
+                parts = cleaned.split(",")
+                if len(parts) >= 2:
+                    coord = parts
+
+        # 將 1024x768 的座標比例縮放到實際螢幕尺寸 (強制造型轉換，防止 API 中轉時字串型座標導致運算崩潰)
+        try:
+            actual_x = int(float(coord[0]) * int(screen_width) / 1024)
+            actual_y = int(float(coord[1]) * int(screen_height) / 768)
+        except (ValueError, TypeError, IndexError) as conv_err:
+            print(f"[WARNING] 座標轉換失敗: {coord}, error: {conv_err}")
+            actual_x = 0
+            actual_y = 0
         
     if action == "left_click":
         page.mouse.click(actual_x, actual_y)
@@ -282,6 +351,26 @@ def _handle_claude_computer_action(page, args: dict, screen_width: int, screen_h
         page.mouse.down()
         page.mouse.move(actual_x, actual_y)
         page.mouse.up()
+    elif action == "scroll":
+        # 支援 Claude 的滾動操作，將其對應至 Playwright 的 mouse.wheel
+        if coord:
+            page.mouse.move(actual_x, actual_y)
+        direction = args.get("scroll_direction", "down").lower()
+        amount = int(args.get("scroll_amount", 3))
+        pixels = amount * 150
+        
+        delta_x = 0
+        delta_y = 0
+        if direction == "down":
+            delta_y = pixels
+        elif direction == "up":
+            delta_y = -pixels
+        elif direction == "right":
+            delta_x = pixels
+        elif direction == "left":
+            delta_x = -pixels
+            
+        page.mouse.wheel(delta_x, delta_y)
     elif action == "screenshot":
         pass
 

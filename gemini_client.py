@@ -110,6 +110,31 @@ class GeminiAgent:
             input=function_responses,
             tools=[self._get_computer_use_tool()]
         )
+
+    def get_final_summary(self, previous_interaction_id: str) -> str:
+        """
+        當達到最大回合數時，向 AI 要求對當前狀態與歷史檢測進行總結結論
+        """
+        interaction = self.client.interactions.create(
+            model=self.model,
+            previous_interaction_id=previous_interaction_id,
+            input=[
+                {
+                    "type": "text",
+                    "text": "目前已達到最大執行回合數 (Max Turns)。請就您目前所觀察到的網頁狀態、已執行的檢測步驟與發現的無障礙問題，進行一次最終的總結評估，並寫出結論與改善建議項目。"
+                }
+            ]
+        )
+        tokens = {"input": 0, "output": 0, "total": 0}
+        if hasattr(interaction, "usage_metadata") and interaction.usage_metadata:
+            tokens["input"] = interaction.usage_metadata.prompt_token_count or 0
+            tokens["output"] = interaction.usage_metadata.candidates_token_count or 0
+            tokens["total"] = tokens["input"] + tokens["output"]
+            
+        return {
+            "summary": self.extract_text_response(interaction),
+            "usage": tokens
+        }
     
     @staticmethod
     def _get_computer_use_tool() -> dict:
@@ -222,6 +247,74 @@ class GeminiAgent:
             for content_block in step.content 
             if content_block.type == "text"
         ])
+
+    def diagnose_static_audit(self, target_url: str, audit_data_text: str, screenshot_bytes: bytes, wcag_guideline: str = None) -> dict:
+        """
+        對靜態掃描結果進行一回合的智慧診斷，不帶任何 Tool，防止模型因擁有 Tool 宣告而只做初步回應
+        """
+        from google.genai import types
+        import base64
+        
+        system_prompt = (
+            "你是一個資深的網頁無障礙 (Accessibility) 檢測專家與開發顧問。\n"
+            "你的任務是根據所提供的網頁截圖與 Axe-core 檢測出的靜態違規數據，撰寫專業的無障礙評估報告與修復方向建議。\n"
+            "**請絕對不要嘗試使用或提及任何瀏覽器操作工具**，你只需要作為一個分析器，直接產出最終的 Markdown 診斷報告。\n"
+            "報告請採用繁體中文（Traditional Chinese）。"
+        )
+        
+        wcag_instruction = ""
+        if wcag_guideline:
+            wcag_instruction = (
+                f"\n⚠️ **重要限制指示**：使用者目前僅針對無障礙指南 **WCAG {wcag_guideline}** 進行檢測，"
+                f"因此你的診斷、分析與優化方向**必須完全限制並聚焦於與 WCAG {wcag_guideline} 相關的要素**（例如若檢測 1.1，則僅分析非文字內容/圖片替代文字；若為 2.1，則僅聚焦鍵盤存取等）。"
+                f"請絕對不要提及或列出任何屬於其他無障礙章節（如鍵盤、焦點、對比度、動態更新等）的評估或修復方向建議！\n"
+            )
+            
+        contents = [
+            f"目標網址: {target_url}\n{wcag_instruction}\n"
+            f"以下是本地 Axe-core 掃描出的違規數據：\n\n{audit_data_text}\n\n"
+            f"請為我們進行智慧診斷，撰寫一份 Markdown 報告。為了保持報告精簡，請嚴格遵守以下格式與限制：\n"
+            f"1. **報告結構**：僅限包含『1. 執行摘要 (Executive Summary)』與『2. 智慧診斷與評估 (AI Diagnosis & Evaluation)』，僅在有實際違規項目時才包含『3. 修復方向建議 (Remediation Directions)』。\n"
+            f"2. **❌ 絕對禁止贅字廢話**：請絕對不要撰寫任何『建議後續行動』、『結論/總結』、『結語』或『未來指引』等贅字廢話章節！寫完主體內容後請立即結束回答。\n"
+            f"3. **無違規時省略修復建議**：若本次檢測無任何違規項目（0 違規），請完全省略『3. 修復方向建議』章節，僅撰寫前兩個章節即可。\n"
+            f"4. **禁止代碼範例**：請給出清晰好理解的具體修復邏輯或屬性指引，**請絕對不要提供任何 HTML/CSS/JS 程式碼/代碼修改範例**。"
+        ]
+        
+        if screenshot_bytes:
+            contents.append(
+                types.Part.from_bytes(
+                    data=screenshot_bytes,
+                    mime_type="image/png"
+                )
+            )
+            
+        config = types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            max_output_tokens=4096
+        )
+        
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=contents,
+            config=config
+        )
+        
+        # 提取 Token 使用量
+        input_tokens = 0
+        output_tokens = 0
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            input_tokens = response.usage_metadata.prompt_token_count or 0
+            output_tokens = response.usage_metadata.candidates_token_count or 0
+        total_tokens = input_tokens + output_tokens
+        
+        return {
+            "text": response.text or "",
+            "usage": {
+                "input": input_tokens,
+                "output": output_tokens,
+                "total": total_tokens
+            }
+        }
 
 
 def get_function_responses(

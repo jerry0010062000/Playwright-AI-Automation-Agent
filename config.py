@@ -16,6 +16,7 @@ CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
 CLAUDE_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "").strip()
 CLAUDE_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "").strip()
 CLAUDE_DISABLE_EXPERIMENTAL_BETAS = os.getenv("CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS", "").strip()
+CLAUDE_USE_GATEWAY = os.getenv("CLAUDE_USE_GATEWAY", "False").strip().lower() in ("true", "1")
 
 try:
     from config_local import GEMINI_API_KEY as LOCAL_GEMINI_API_KEY
@@ -52,6 +53,16 @@ try:
 except ImportError:
     pass
 
+try:
+    from config_local import CLAUDE_USE_GATEWAY as LOCAL_CLAUDE_USE_GATEWAY
+    if LOCAL_CLAUDE_USE_GATEWAY is not None:
+        if isinstance(LOCAL_CLAUDE_USE_GATEWAY, str):
+            CLAUDE_USE_GATEWAY = LOCAL_CLAUDE_USE_GATEWAY.strip().lower() in ("true", "1")
+        else:
+            CLAUDE_USE_GATEWAY = bool(LOCAL_CLAUDE_USE_GATEWAY)
+except ImportError:
+    pass
+
 CLAUDE_COMPUTER_TOOL_TYPE = os.getenv("CLAUDE_COMPUTER_TOOL_TYPE", "computer_20251124").strip()
 CLAUDE_COMPUTER_BETAS = os.getenv("CLAUDE_COMPUTER_BETAS", "computer-use-2025-11-24").strip()
 
@@ -66,6 +77,27 @@ try:
     from config_local import CLAUDE_COMPUTER_BETAS as LOCAL_BETAS
     if LOCAL_BETAS:
         CLAUDE_COMPUTER_BETAS = LOCAL_BETAS.strip()
+except ImportError:
+    pass
+
+
+# ========================================
+# 自動登入配置
+# ========================================
+AUTO_LOGIN_USERNAME = os.getenv("AUTO_LOGIN_USERNAME", "").strip()
+AUTO_LOGIN_PASSWORD = os.getenv("AUTO_LOGIN_PASSWORD", "").strip()
+
+try:
+    from config_local import AUTO_LOGIN_USERNAME as LOCAL_AUTO_LOGIN_USERNAME
+    if LOCAL_AUTO_LOGIN_USERNAME:
+        AUTO_LOGIN_USERNAME = LOCAL_AUTO_LOGIN_USERNAME.strip()
+except ImportError:
+    pass
+
+try:
+    from config_local import AUTO_LOGIN_PASSWORD as LOCAL_AUTO_LOGIN_PASSWORD
+    if LOCAL_AUTO_LOGIN_PASSWORD:
+        AUTO_LOGIN_PASSWORD = LOCAL_AUTO_LOGIN_PASSWORD.strip()
 except ImportError:
     pass
 
@@ -153,3 +185,32 @@ INPUT_FOCUS_DELAY = 0.3
 
 # 任務完成後觀察結果的時間（秒）
 RESULT_OBSERVATION_TIME = 1
+
+# 爬蟲最大巡檢頁數（全站靜態巡檢時使用）
+MAX_CRAWL_PAGES = 100
+
+# AI 預先登入嘗試最大回合數
+MAX_LOGIN_TURNS = 10
+
+
+# ========================================
+# 載入進階參數設定 (非敏感資料，可納入遠端 Git 庫)
+# ========================================
+CONFIG_ADVANCED_PATH = os.path.join(os.path.dirname(__file__), "config_advanced.json")
+
+if os.path.exists(CONFIG_ADVANCED_PATH):
+    try:
+        with open(CONFIG_ADVANCED_PATH, "r", encoding="utf-8") as f:
+            adv_config = json.load(f)
+        if "MAX_CRAWL_PAGES" in adv_config:
+            MAX_CRAWL_PAGES = int(adv_config["MAX_CRAWL_PAGES"])
+        if "MAX_LOGIN_TURNS" in adv_config:
+            MAX_LOGIN_TURNS = int(adv_config["MAX_LOGIN_TURNS"])
+        if "RESULT_OBSERVATION_TIME" in adv_config:
+            RESULT_OBSERVATION_TIME = int(adv_config["RESULT_OBSERVATION_TIME"])
+        if "ACTION_DELAY" in adv_config:
+            ACTION_DELAY = float(adv_config["ACTION_DELAY"])
+        if "PAGE_LOAD_TIMEOUT" in adv_config:
+            PAGE_LOAD_TIMEOUT = int(adv_config["PAGE_LOAD_TIMEOUT"])
+    except Exception as e:
+        print(f"[WARNING] 載入 config_advanced.json 失敗: {e}")
