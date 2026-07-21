@@ -1,0 +1,785 @@
+{
+    "base_path": "/html",
+    "total_pages": 83,
+    "nodes": {
+        "/html": {
+            "path": "/html",
+            "title": "Speedport Smart 4 - 主頁面",
+            "parent": null,
+            "children": [
+                "/html/login",
+                "/html/content",
+                "/html/assistent"
+            ],
+            "is_leaf": false,
+            "depth": 0,
+            "status": "OK"
+        },
+        "/html/content": {
+            "path": "/html/content",
+            "title": "主內容區域",
+            "parent": "/html",
+            "children": [
+                "/html/content/index.html",
+                "/html/content/overview",
+                "/html/content/internet",
+                "/html/content/network",
+                "/html/content/phone",
+                "/html/content/config"
+            ],
+            "is_leaf": false,
+            "depth": 1
+        },
+        "/html/content/index.html": {
+            "path": "/html/content/index.html",
+            "title": "內容首頁 / 網站地圖",
+            "parent": "/html/content",
+            "children": [],
+            "is_leaf": true,
+            "depth": 2
+        },
+        "/html/content/overview": {
+            "path": "/html/content/overview",
+            "title": "總覽區域",
+            "parent": "/html/content",
+            "children": [
+                "/html/content/overview/index.html"
+            ],
+            "is_leaf": false,
+            "depth": 2
+        },
+        "/html/content/overview/index.html": {
+            "path": "/html/content/overview/index.html",
+            "title": "系統總覽儀表板",
+            "parent": "/html/content/overview",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3,
+            "report_file": "records\\smart4-map\\pages\\html_content_overview_index_html.md"
+        },
+        "/html/content/internet": {
+            "path": "/html/content/internet",
+            "title": "網路 (Internet) 區域",
+            "parent": "/html/content",
+            "children": [
+                "/html/content/internet/index.html",
+                "/html/content/internet/connection.html",
+                "/html/content/internet/con_ipdata.html",
+                "/html/content/internet/con_privacy.html",
+                "/html/content/internet/dyn_dns.html",
+                "/html/content/internet/except.html",
+                "/html/content/internet/lte.html",
+                "/html/content/internet/lte_firmware.html",
+                "/html/content/internet/lte_mode.html",
+                "/html/content/internet/portblocking.html",
+                "/html/content/internet/portforwarding.html",
+                "/html/content/internet/usb_tethering.html",
+                "/html/content/internet/chd_timerules.html"
+            ],
+            "is_leaf": false,
+            "depth": 2
+        },
+        "/html/content/internet/index.html": {
+            "path": "/html/content/internet/index.html",
+            "title": "網路設定首頁",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/connection.html": {
+            "path": "/html/content/internet/connection.html",
+            "title": "連線設定",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/con_ipdata.html": {
+            "path": "/html/content/internet/con_ipdata.html",
+            "title": "IP 資料配置",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/con_privacy.html": {
+            "path": "/html/content/internet/con_privacy.html",
+            "title": "隱私設定",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/dyn_dns.html": {
+            "path": "/html/content/internet/dyn_dns.html",
+            "title": "動態 DNS",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/except.html": {
+            "path": "/html/content/internet/except.html",
+            "title": "例外規則",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/lte.html": {
+            "path": "/html/content/internet/lte.html",
+            "title": "LTE 設定",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/lte_firmware.html": {
+            "path": "/html/content/internet/lte_firmware.html",
+            "title": "LTE 韌體",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/lte_mode.html": {
+            "path": "/html/content/internet/lte_mode.html",
+            "title": "LTE 模式",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/portblocking.html": {
+            "path": "/html/content/internet/portblocking.html",
+            "title": "埠封鎖",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/portforwarding.html": {
+            "path": "/html/content/internet/portforwarding.html",
+            "title": "埠轉發",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/usb_tethering.html": {
+            "path": "/html/content/internet/usb_tethering.html",
+            "title": "USB 網路共享",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/internet/chd_timerules.html": {
+            "path": "/html/content/internet/chd_timerules.html",
+            "title": "時間規則（兒童保護）",
+            "parent": "/html/content/internet",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network": {
+            "path": "/html/content/network",
+            "title": "網路設備 (Network) 區域",
+            "parent": "/html/content",
+            "children": [
+                "/html/content/network/index.html",
+                "/html/content/network/devices.html",
+                "/html/content/network/dhcp.html",
+                "/html/content/network/dns_rebind.html",
+                "/html/content/network/lan.html",
+                "/html/content/network/qos.html",
+                "/html/content/network/vpn.html",
+                "/html/content/network/smarthome.html",
+                "/html/content/network/wlan_basic.html",
+                "/html/content/network/wlan_name_enc.html",
+                "/html/content/network/wlan_access.html",
+                "/html/content/network/wlan_guest.html",
+                "/html/content/network/wlan_office.html",
+                "/html/content/network/wlan_wps.html",
+                "/html/content/network/wlan_sendset.html",
+                "/html/content/network/wlan_environ.html",
+                "/html/content/network/nas_overview.html",
+                "/html/content/network/nas_mediareplay.html",
+                "/html/content/network/nas_share.html",
+                "/html/content/network/nas_workgroup.html"
+            ],
+            "is_leaf": false,
+            "depth": 2
+        },
+        "/html/content/network/index.html": {
+            "path": "/html/content/network/index.html",
+            "title": "網路首頁",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/devices.html": {
+            "path": "/html/content/network/devices.html",
+            "title": "連接裝置列表",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3,
+            "report_file": "records\\smart4-map\\pages\\html_content_network_devices_html.md"
+        },
+        "/html/content/network/dhcp.html": {
+            "path": "/html/content/network/dhcp.html",
+            "title": "DHCP 伺服器設定",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/dns_rebind.html": {
+            "path": "/html/content/network/dns_rebind.html",
+            "title": "DNS Rebind 保護",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/lan.html": {
+            "path": "/html/content/network/lan.html",
+            "title": "LAN 設定",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/qos.html": {
+            "path": "/html/content/network/qos.html",
+            "title": "QoS 服務品質",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/vpn.html": {
+            "path": "/html/content/network/vpn.html",
+            "title": "VPN 設定",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/smarthome.html": {
+            "path": "/html/content/network/smarthome.html",
+            "title": "智慧家居",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3,
+            "report_file": "records\\smart4-map\\pages\\html_content_network_smarthome_html.md"
+        },
+        "/html/content/network/wlan_basic.html": {
+            "path": "/html/content/network/wlan_basic.html",
+            "title": "WiFi 基本設定",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3,
+            "report_file": "records\\smart4-map\\pages\\html_content_network_wlan_basic_html.md"
+        },
+        "/html/content/network/wlan_name_enc.html": {
+            "path": "/html/content/network/wlan_name_enc.html",
+            "title": "WiFi 名稱與加密",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/wlan_access.html": {
+            "path": "/html/content/network/wlan_access.html",
+            "title": "WiFi 存取控制",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/wlan_guest.html": {
+            "path": "/html/content/network/wlan_guest.html",
+            "title": "訪客 WiFi",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/wlan_office.html": {
+            "path": "/html/content/network/wlan_office.html",
+            "title": "Office WiFi",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/wlan_wps.html": {
+            "path": "/html/content/network/wlan_wps.html",
+            "title": "WPS 設定",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/wlan_sendset.html": {
+            "path": "/html/content/network/wlan_sendset.html",
+            "title": "WiFi 發送功率",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/wlan_environ.html": {
+            "path": "/html/content/network/wlan_environ.html",
+            "title": "WiFi 環境設定",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/nas_overview.html": {
+            "path": "/html/content/network/nas_overview.html",
+            "title": "NAS 總覽",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/nas_mediareplay.html": {
+            "path": "/html/content/network/nas_mediareplay.html",
+            "title": "媒體播放器",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/nas_share.html": {
+            "path": "/html/content/network/nas_share.html",
+            "title": "共享設定",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/network/nas_workgroup.html": {
+            "path": "/html/content/network/nas_workgroup.html",
+            "title": "工作群組",
+            "parent": "/html/content/network",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone": {
+            "path": "/html/content/phone",
+            "title": "電話 (Phone) 區域",
+            "parent": "/html/content",
+            "children": [
+                "/html/content/phone/index.html",
+                "/html/content/phone/phone_internet.html",
+                "/html/content/phone/phone_ippbx.html",
+                "/html/content/phone/phone_number.html",
+                "/html/content/phone/phone_analog.html",
+                "/html/content/phone/phone_book_basic.html",
+                "/html/content/phone/phone_book_entries.html",
+                "/html/content/phone/phone_book_assign.html",
+                "/html/content/phone/phone_call_taken.html",
+                "/html/content/phone/phone_call_missed.html",
+                "/html/content/phone/phone_call_dialed.html",
+                "/html/content/phone/phone_dect_mobiles.html",
+                "/html/content/phone/phone_dect_repeater.html",
+                "/html/content/phone/phone_dect_settings.html",
+                "/html/content/phone/phone_lineset.html",
+                "/html/content/phone/phone_linedialdelay.html",
+                "/html/content/phone/phone_linehdvoice.html",
+                "/html/content/phone/phone_linestataudio.html",
+                "/html/content/phone/phone_linespeeddial.html",
+                "/html/content/phone/phone_linevosip.html"
+            ],
+            "is_leaf": false,
+            "depth": 2
+        },
+        "/html/content/phone/index.html": {
+            "path": "/html/content/phone/index.html",
+            "title": "電話首頁",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_internet.html": {
+            "path": "/html/content/phone/phone_internet.html",
+            "title": "網路電話設定",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_ippbx.html": {
+            "path": "/html/content/phone/phone_ippbx.html",
+            "title": "IP PBX",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_number.html": {
+            "path": "/html/content/phone/phone_number.html",
+            "title": "電話號碼管理",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_analog.html": {
+            "path": "/html/content/phone/phone_analog.html",
+            "title": "類比電話",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_book_basic.html": {
+            "path": "/html/content/phone/phone_book_basic.html",
+            "title": "電話簿基本設定",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_book_entries.html": {
+            "path": "/html/content/phone/phone_book_entries.html",
+            "title": "電話簿條目",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_book_assign.html": {
+            "path": "/html/content/phone/phone_book_assign.html",
+            "title": "電話簿分配",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_call_taken.html": {
+            "path": "/html/content/phone/phone_call_taken.html",
+            "title": "已接來電",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_call_missed.html": {
+            "path": "/html/content/phone/phone_call_missed.html",
+            "title": "未接來電",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_call_dialed.html": {
+            "path": "/html/content/phone/phone_call_dialed.html",
+            "title": "已撥電話",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_dect_mobiles.html": {
+            "path": "/html/content/phone/phone_dect_mobiles.html",
+            "title": "DECT 行動裝置",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_dect_repeater.html": {
+            "path": "/html/content/phone/phone_dect_repeater.html",
+            "title": "DECT 中繼器",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_dect_settings.html": {
+            "path": "/html/content/phone/phone_dect_settings.html",
+            "title": "DECT 設定",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_lineset.html": {
+            "path": "/html/content/phone/phone_lineset.html",
+            "title": "線路設定",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_linedialdelay.html": {
+            "path": "/html/content/phone/phone_linedialdelay.html",
+            "title": "撥號延遲",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_linehdvoice.html": {
+            "path": "/html/content/phone/phone_linehdvoice.html",
+            "title": "HD 語音",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_linestataudio.html": {
+            "path": "/html/content/phone/phone_linestataudio.html",
+            "title": "狀態音訊",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_linespeeddial.html": {
+            "path": "/html/content/phone/phone_linespeeddial.html",
+            "title": "快速撥號",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/phone/phone_linevosip.html": {
+            "path": "/html/content/phone/phone_linevosip.html",
+            "title": "VoSIP 設定",
+            "parent": "/html/content/phone",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config": {
+            "path": "/html/content/config",
+            "title": "系統 (System) 區域",
+            "parent": "/html/content",
+            "children": [
+                "/html/content/config/index.html",
+                "/html/content/config/change_password.html",
+                "/html/content/config/protect.html",
+                "/html/content/config/restart.html",
+                "/html/content/config/reset.html",
+                "/html/content/config/save_settings.html",
+                "/html/content/config/system_info.html",
+                "/html/content/config/system_log.html",
+                "/html/content/config/system_services.html",
+                "/html/content/config/check_for_updates.html",
+                "/html/content/config/check_for_updates_mesh.html",
+                "/html/content/config/notify.html",
+                "/html/content/config/easy_support.html",
+                "/html/content/config/internal_modem.html",
+                "/html/content/config/external_modem.html",
+                "/html/content/config/problem_handling_dect.html",
+                "/html/content/config/problem_handling_mesh.html",
+                "/html/content/config/energy.html"
+            ],
+            "is_leaf": false,
+            "depth": 2
+        },
+        "/html/content/config/index.html": {
+            "path": "/html/content/config/index.html",
+            "title": "系統首頁",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/change_password.html": {
+            "path": "/html/content/config/change_password.html",
+            "title": "更改密碼",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/protect.html": {
+            "path": "/html/content/config/protect.html",
+            "title": "保護設定",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/restart.html": {
+            "path": "/html/content/config/restart.html",
+            "title": "重新啟動",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/reset.html": {
+            "path": "/html/content/config/reset.html",
+            "title": "重置為出廠設定",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/save_settings.html": {
+            "path": "/html/content/config/save_settings.html",
+            "title": "儲存設定",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/system_info.html": {
+            "path": "/html/content/config/system_info.html",
+            "title": "系統資訊",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/system_log.html": {
+            "path": "/html/content/config/system_log.html",
+            "title": "系統日誌",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/system_services.html": {
+            "path": "/html/content/config/system_services.html",
+            "title": "系統服務",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/check_for_updates.html": {
+            "path": "/html/content/config/check_for_updates.html",
+            "title": "檢查更新",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/check_for_updates_mesh.html": {
+            "path": "/html/content/config/check_for_updates_mesh.html",
+            "title": "Mesh 更新",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/notify.html": {
+            "path": "/html/content/config/notify.html",
+            "title": "通知設定",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/easy_support.html": {
+            "path": "/html/content/config/easy_support.html",
+            "title": "簡易支援",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/internal_modem.html": {
+            "path": "/html/content/config/internal_modem.html",
+            "title": "內建數據機",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/external_modem.html": {
+            "path": "/html/content/config/external_modem.html",
+            "title": "外接數據機",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/problem_handling_dect.html": {
+            "path": "/html/content/config/problem_handling_dect.html",
+            "title": "DECT 問題處理",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/problem_handling_mesh.html": {
+            "path": "/html/content/config/problem_handling_mesh.html",
+            "title": "Mesh 問題處理",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/content/config/energy.html": {
+            "path": "/html/content/config/energy.html",
+            "title": "能源管理",
+            "parent": "/html/content/config",
+            "children": [],
+            "is_leaf": true,
+            "depth": 3
+        },
+        "/html/assistent": {
+            "path": "/html/assistent",
+            "title": "設定精靈區域",
+            "parent": "/html",
+            "children": [
+                "/html/assistent/wlan_wizard.html",
+                "/html/assistent/phone_wizard_step2.html",
+                "/html/assistent/phone_wizard_step3.html",
+                "/html/assistent/ea_done.html"
+            ],
+            "is_leaf": false,
+            "depth": 1
+        },
+        "/html/assistent/wlan_wizard.html": {
+            "path": "/html/assistent/wlan_wizard.html",
+            "title": "WiFi 設定精靈",
+            "parent": "/html/assistent",
+            "children": [],
+            "is_leaf": true,
+            "depth": 2
+        },
+        "/html/assistent/phone_wizard_step2.html": {
+            "path": "/html/assistent/phone_wizard_step2.html",
+            "title": "電話設定精靈 - 步驟2",
+            "parent": "/html/assistent",
+            "children": [],
+            "is_leaf": true,
+            "depth": 2
+        },
+        "/html/assistent/phone_wizard_step3.html": {
+            "path": "/html/assistent/phone_wizard_step3.html",
+            "title": "電話設定精靈 - 步驟3",
+            "parent": "/html/assistent",
+            "children": [],
+            "is_leaf": true,
+            "depth": 2
+        },
+        "/html/assistent/ea_done.html": {
+            "path": "/html/assistent/ea_done.html",
+            "title": "精靈完成頁面",
+            "parent": "/html/assistent",
+            "children": [],
+            "is_leaf": true,
+            "depth": 2
+        }
+    },
+    "last_verified": "2026-07-20 13:43:20"
+}

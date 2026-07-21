@@ -1,12 +1,106 @@
-[
-  "http://192.168.1.1",
-  "http://192.168.1.1/dashboard",
-  "http://192.168.1.1/wan",
-  "http://192.168.1.1/lan",
-  "http://192.168.1.1/dhcpv4",
-  "http://192.168.1.1/wifi",
-  "http://192.168.1.1/phone",
-  "http://192.168.1.1/lcm",
-  "http://192.168.1.1/upgrade",
-  "http://192.168.1.1/reset-default"
-]
+{
+    "base_path": "/",
+    "total_pages": 10,
+    "nodes": {
+        "/": {
+            "path": "/",
+            "title": "OPL Router - 專案首頁",
+            "parent": null,
+            "children": [
+                "/dashboard",
+                "/wan",
+                "/lan",
+                "/dhcpv4",
+                "/wifi",
+                "/phone",
+                "/lcm",
+                "/upgrade",
+                "/reset-default"
+            ],
+            "is_leaf": false,
+            "depth": 0,
+            "status": "OK"
+        },
+        "/dashboard": {
+            "path": "/dashboard",
+            "title": "儀表板 (Dashboard)",
+            "parent": "/",
+            "children": [],
+            "is_leaf": true,
+            "depth": 1,
+            "status": "OK"
+        },
+        "/wan": {
+            "path": "/wan",
+            "title": "廣域網路設定 (WAN)",
+            "parent": "/",
+            "children": [],
+            "is_leaf": true,
+            "depth": 1,
+            "status": "OK"
+        },
+        "/lan": {
+            "path": "/lan",
+            "title": "區域網路設定 (LAN)",
+            "parent": "/",
+            "children": [],
+            "is_leaf": true,
+            "depth": 1,
+            "status": "OK"
+        },
+        "/dhcpv4": {
+            "path": "/dhcpv4",
+            "title": "DHCPv4 伺服器設定",
+            "parent": "/",
+            "children": [],
+            "is_leaf": true,
+            "depth": 1,
+            "status": "OK"
+        },
+        "/wifi": {
+            "path": "/wifi",
+            "title": "Wi-Fi 無線網路設定",
+            "parent": "/",
+            "children": [],
+            "is_leaf": true,
+            "depth": 1,
+            "status": "OK"
+        },
+        "/phone": {
+            "path": "/phone",
+            "title": "VoIP 電話設定 (Phone)",
+            "parent": "/",
+            "children": [],
+            "is_leaf": true,
+            "depth": 1,
+            "status": "OK"
+        },
+        "/lcm": {
+            "path": "/lcm",
+            "title": "LCM 螢幕控制 (LCM)",
+            "parent": "/",
+            "children": [],
+            "is_leaf": true,
+            "depth": 1,
+            "status": "OK"
+        },
+        "/upgrade": {
+            "path": "/upgrade",
+            "title": "韌體升級 (Upgrade)",
+            "parent": "/",
+            "children": [],
+            "is_leaf": true,
+            "depth": 1,
+            "status": "OK"
+        },
+        "/reset-default": {
+            "path": "/reset-default",
+            "title": "恢復出廠預設值 (Reset)",
+            "parent": "/",
+            "children": [],
+            "is_leaf": true,
+            "depth": 1,
+            "status": "OK"
+        }
+    }
+}

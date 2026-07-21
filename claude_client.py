@@ -249,6 +249,46 @@ class ClaudeAgent:
                 else:
                     msg["content"][j]["content"][k] = replacement
 
+    def _apply_sliding_window(self, keep_recent_turns: int = 3, max_history_turns: int = None):
+        """
+        結構安全之歷史內容輕量化 (Structural-Safe Token Pruning)：
+        保持 Anthropic API 嚴格的 tool_use <-> tool_result ID 配對鏈完好無損，
+        但將超過 keep_recent_turns 以外的舊回合龐大內容（如長文字、Focus Map 與截圖）
+        精簡替換為極簡標記，完全封頂 Token 消耗，並 100% 避免 400 結構匹配錯誤。
+        """
+        if max_history_turns is not None:
+            keep_recent_turns = max_history_turns
+        protected_count = keep_recent_turns * 2
+        if len(self.messages) <= 1 + protected_count:
+            return
+
+        cutoff_index = len(self.messages) - protected_count
+        for idx in range(1, cutoff_index):
+            msg = self.messages[idx]
+            role = msg.get("role")
+            if role == "user" and isinstance(msg.get("content"), list):
+                for block_idx, block in enumerate(msg["content"]):
+                    if isinstance(block, dict):
+                        btype = block.get("type")
+                        if btype == "tool_result":
+                            block["content"] = [
+                                {
+                                    "type": "text",
+                                    "text": "[Historical step completed successfully]"
+                                }
+                            ]
+                        elif btype == "image":
+                            msg["content"][block_idx] = {
+                                "type": "text",
+                                "text": "[Historical screenshot pruned for context optimization]"
+                            }
+            elif role == "assistant" and isinstance(msg.get("content"), list):
+                # 精簡舊回合的 assistant text 回應，只保留 tool_use 結構
+                for block in msg["content"]:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        if len(block.get("text", "")) > 100:
+                            block["text"] = block["text"][:100] + "... [Historical reasoning truncated]"
+
     def _build_system_prompt(self) -> str:
         """
         整合 prompts.py 中的系統提示詞，包含角色特徵、行為原則與例外處理。
@@ -277,8 +317,9 @@ class ClaudeAgent:
 
     def _create_claude_response(self):
         """呼叫 Claude Messages API 並轉換為統一互動格式"""
-        # 執行歷史截圖剪裁以節約 Token 消耗
+        # 執行歷史截圖剪裁與滑動視窗對話截斷，嚴格封頂 Token 消耗
         self._prune_history_images()
+        self._apply_sliding_window(max_history_turns=3)
         
         # 建立完整的系統提示詞 (包含行為原則與停損指南)
         system_prompt = self._build_system_prompt()
@@ -501,11 +542,13 @@ class ClaudeAgent:
                         "text": (
                             f"目標網址: {target_url}\n{wcag_instruction}\n"
                             f"以下是本地 Axe-core 掃描出的違規數據：\n\n{audit_data_text}\n\n"
-                            f"請為我們進行智慧診斷，撰寫一份 Markdown 報告。為了保持報告精簡，請嚴格遵守以下格式與限制：\n"
-                            f"1. **報告結構**：僅限包含『1. 執行摘要 (Executive Summary)』與『2. 智慧診斷與評估 (AI Diagnosis & Evaluation)』，僅在有實際違規項目時才包含『3. 修復方向建議 (Remediation Directions)』。\n"
-                            f"2. **❌ 絕對禁止贅字廢話**：請絕對不要撰寫任何『建議後續行動』、『結論/總結』、『結語』或『未來指引』等贅字廢話章節！寫完主體內容後請立即結束回答。\n"
-                            f"3. **無違規時省略修復建議**：若本次檢測無任何違規項目（0 違規），請完全省略『3. 修復方向建議』章節，僅撰寫前兩個章節即可。\n"
-                            f"4. **禁止代碼範例**：請給出清晰好理解的具體修復邏輯或屬性指引，**請絕對不要提供任何 HTML/CSS/JS 程式碼/代碼修改範例**。"
+                            f"請為我們進行智慧診斷，撰寫一份高嚴謹度的無障礙 Markdown 評估報告。請嚴格遵守以下結構與指示：\n"
+                            f"1. **【必須包含】第 1 章：規範涵蓋與成功條款合規對照表 (WCAG 2.2 Success Criteria Compliance Matrix Table)**：\n"
+                            f"   - 必須在此章節完整建立 Markdown 表格，精確列出對應的 3 位數 Success Criteria 成功條款 (如 1.1.1, 1.3.1, 1.4.3, 2.1.4, 2.4.7, 4.1.2 等)、條款名稱、合規等級 (Level A / AA / AAA) 及實測合規狀態 (PASS / FAIL / 違規件數)。\n"
+                            f"2. **第 2 章：執行摘要 (Executive Summary)**：依據第 1 章表格，概括合規狀況與風險等級。\n"
+                            f"3. **第 3 章：智慧診斷與深度評估 (AI Diagnosis & Evaluation)**：**後續的所有問題分析、影響評估都必須嚴格依據第 1 章表格中的 3 位數成功條款進行關聯與對應**！\n"
+                            f"4. **第 4 章：修復方向建議 (Remediation Directions)**：若有違規，依據 Level A -> Level AA 優先級，針對 3 位數條款給出明確的修復指引（請給出邏輯說明，不要貼程式碼片段）。\n"
+                            f"5. **❌ 絕對禁止贅字廢話**：請絕對不要撰寫任何『建議後續行動』、『結語』或『未來指引』等贅字章節！寫完主題內容後請立即結束。範例請保持嚴謹精確。"
                         )
                     },
                     {

@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎭 Sitemap 樹狀地圖視覺化系統 - PW-AI Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #090d16;
+            --panel-bg: #111827;
+            --card-bg: #1f2937;
+            --card-hover: #374151;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
+            --text-main: #f9fafb;
+            --text-sub: #9ca3af;
+            --border-color: #1f2937;
+            --branch-color: #374151;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* 頂部 Header 欄目 */
+        header {
+            background: rgba(17, 24, 39, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .brand-logo {
+            font-size: 1.8rem;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
+        }
+
+        .brand-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        select, input {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        select:focus, input:focus {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        /* 統計概覽面板 */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            padding: 1.5rem 2rem;
+            background-color: rgba(17, 24, 39, 0.4);
+        }
+
+        .stat-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+        }
+
+        .stat-card.total::before { background: var(--accent-blue); }
+        .stat-card.static::before { background: var(--accent-green); }
+        .stat-card.dynamic::before { background: var(--accent-cyan); }
+        .stat-card.pending::before { background: var(--accent-amber); }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-sub);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+        }
+
+        /* 主要樹狀視圖容器 */
+        main {
+            flex: 1;
+            padding: 1.5rem 2rem 3rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .tree-container {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        /* 樹狀結構 CSS (無混亂交叉連線，採乾淨階層樹分支) */
+        .tree-node {
+            list-style: none;
+            position: relative;
+            padding-left: 1.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .tree-node::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 1.2rem;
+            width: 1.2rem;
+            height: 1px;
+            background-color: var(--branch-color);
+        }
+
+        .tree-node::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: -0.75rem;
+            width: 1px;
+            height: calc(100% + 0.75rem);
+            background-color: var(--branch-color);
+        }
+
+        .tree-node:last-child::after {
+            height: 2rem;
+        }
+
+        .node-content {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 0.6rem 1rem;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+        }
+
+        .node-content:hover {
+            background: var(--card-hover);
+            transform: translateX(4px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .node-icon {
+            font-size: 1.1rem;
+        }
+
+        .node-title {
+            font-weight: 500;
+            font-size: 0.95rem;
+        }
+
+        .node-path {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-sub);
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        /* 狀態標籤 Status Badges */
+        .badge {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.6rem;
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            letter-spacing: 0.3px;
+        }
+
+        .badge-static {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-dynamic {
+            background: rgba(6, 182, 212, 0.15);
+            color: #38bdf8;
+            border: 1px solid rgba(6, 182, 212, 0.3);
+        }
+
+        .badge-pending {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .badge-error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* 展開/收合折疊控制器 */
+        .toggle-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-sub);
+            cursor: pointer;
+            font-size: 0.8rem;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: transform 0.2s ease;
+        }
+
+        .toggle-btn.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .children-container {
+            padding-left: 1rem;
+        }
+
+        .children-container.collapsed {
+            display: none;
+        }
+
+        /* 側邊詳情抽屜 (Detail Modal / Drawer) */
+        .drawer {
+            position: fixed;
+            right: -420px;
+            top: 0;
+            width: 400px;
+            height: 100vh;
+            background: var(--panel-bg);
+            border-left: 1px solid var(--border-color);
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.7);
+            z-index: 200;
+            padding: 2rem;
+            transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            overflow-y: auto;
+        }
+
+        .drawer.open {
+            right: 0;
+        }
+
+        .drawer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1rem;
+        }
+
+        .close-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-sub);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .drawer-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .field-title {
+            font-size: 0.8rem;
+            color: var(--text-sub);
+            text-transform: uppercase;
+        }
+
+        .field-val {
+            font-size: 1rem;
+            font-weight: 500;
+        }
+
+        /* 響應式微調 */
+        @media (max-width: 768px) {
+            header { flex-direction: column; gap: 1rem; }
+            .tree-container { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <div class="brand-logo">🎭 PW-AI</div>
+            <div class="brand-title">Sitemap 樹狀地圖視覺化系統</div>
+        </div>
+
+        <div class="controls">
+            <input type="text" id="searchInput" placeholder="🔍 搜尋 URL 或頁面標題..." oninput="filterTree()">
+            <select id="statusFilter" onchange="filterTree()">
+                <option value="ALL">全部狀態 (All Status)</option>
+                <option value="STATIC">✅ 僅看已靜態校對</option>
+                <option value="DYNAMIC">🤖 僅看已動態 AI 校對</option>
+                <option value="PENDING">⏳ 僅看待探索頁面</option>
+            </select>
+            <select id="mapSelector" onchange="loadSelectedMap()">
+                <option value="smart4-map.json">Speedport Smart 4 (smart4-map.json)</option>
+                <option value="opl-map.json">OPL Framework (opl-map.json)</option>
+                <option value="example-map.json">Example Map (example-map.json)</option>
+            </select>
+            <input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleFileSelect(event)">
+            <button class="node-content" style="padding:0.5rem 0.8rem; background:var(--accent-blue);" onclick="document.getElementById('fileInput').click()">📁 手動選擇 JSON</button>
+        </div>
+    </header>
+
+    <div class="stats-bar">
+        <div class="stat-card total">
+            <span class="stat-label">總頁面數 (Total Pages)</span>
+            <span class="stat-value" id="statTotal">0</span>
+        </div>
+        <div class="stat-card static">
+            <span class="stat-label">已靜態校對 (Static Verified)</span>
+            <span class="stat-value" id="statStatic">0</span>
+        </div>
+        <div class="stat-card dynamic">
+            <span class="stat-label">已動態 AI 巡檢 (Dynamic Audited)</span>
+            <span class="stat-value" id="statDynamic">0</span>
+        </div>
+        <div class="stat-card pending">
+            <span class="stat-label">待探索/未完成 (Pending)</span>
+            <span class="stat-value" id="statPending">0</span>
+        </div>
+    </div>
+
+    <main>
+        <div class="tree-container">
+            <ul id="sitemapTree">
+                <!-- 樹狀結構由 JavaScript 自動渲染 -->
+            </ul>
+        </div>
+    </main>
+
+    <!-- 詳情抽屜 -->
+    <div class="drawer" id="detailDrawer">
+        <div class="drawer-header">
+            <h3 id="drawerNodeTitle">頁面詳情</h3>
+            <button class="close-btn" onclick="closeDrawer()">&times;</button>
+        </div>
+        <div class="drawer-field">
+            <span class="field-title">相對路徑 (Relative Path)</span>
+            <span class="field-val" id="drawerPath" style="font-family: monospace;">-</span>
+        </div>
+        <div class="drawer-field">
+            <span class="field-title">頁面標題 (Page Title)</span>
+            <span class="field-val" id="drawerTitle">-</span>
+        </div>
+        <div class="drawer-field">
+            <span class="field-title">節點類型 (Node Type)</span>
+            <span class="field-val" id="drawerType">-</span>
+        </div>
+        <div class="drawer-field">
+            <span class="field-title">靜態校對時間 (Static Verified At)</span>
+            <span class="field-val" id="drawerStaticTime">-</span>
+        </div>
+        <div class="drawer-field">
+            <span class="field-title">動態 AI 校對時間 (Dynamic Verified At)</span>
+            <span class="field-val" id="drawerDynamicTime">-</span>
+        </div>
+        <div class="drawer-field">
+            <span class="field-title">子頁面數量 (Children Count)</span>
+            <span class="field-val" id="drawerChildrenCount">0</span>
+        </div>
+    </div>
+
+    <script>
+        let currentSitemap = null;
+
+        // 手動檔案選擇
+        function handleFileSelect(evt) {
+            const file = evt.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    currentSitemap = JSON.parse(e.target.result);
+                    renderSitemapTree();
+                    updateStats();
+                } catch (err) {
+                    alert('JSON 解析失敗: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // 載入預設地圖或選取的 JSON 地圖
+        async function loadSelectedMap() {
+            const mapFile = document.getElementById('mapSelector').value;
+            try {
+                const response = await fetch(`./sitemaps/${mapFile}`);
+                if (!response.ok) throw new Error('地圖檔載入失敗');
+                currentSitemap = await response.json();
+                renderSitemapTree();
+                updateStats();
+            } catch (err) {
+                console.warn('CORS 或 Fetch 載入限制，請點選右上角【📁 手動選擇 JSON】載入 sitemaps/' + mapFile);
+            }
+        }
+
+        // 統計面板數據計算
+        function updateStats() {
+            if (!currentSitemap || !currentSitemap.nodes) return;
+            const nodes = Object.values(currentSitemap.nodes);
+            const total = nodes.length;
+            
+            let staticCount = 0;
+            let dynamicCount = 0;
+            let pendingCount = 0;
+
+            nodes.forEach(n => {
+                if (n.verified_at) staticCount++;
+                if (n.dynamic_verified_at) dynamicCount++;
+                if (!n.verified_at && !n.dynamic_verified_at) pendingCount++;
+            });
+
+            document.getElementById('statTotal').innerText = total;
+            document.getElementById('statStatic').innerText = `${staticCount} (${Math.round(staticCount/total*100)}%)`;
+            document.getElementById('statDynamic').innerText = `${dynamicCount} (${Math.round(dynamicCount/total*100)}%)`;
+            document.getElementById('statPending').innerText = pendingCount;
+        }
+
+        // 渲染樹狀視圖 (以親子階層關係為基礎，避免交叉連線亂象)
+        function renderSitemapTree() {
+            const container = document.getElementById('sitemapTree');
+            container.innerHTML = '';
+
+            if (!currentSitemap || !currentSitemap.nodes) return;
+            const nodes = currentSitemap.nodes;
+
+            // 尋找根節點 (Parent 為 null 或 /html)
+            const rootPaths = Object.keys(nodes).filter(path => !nodes[path].parent || nodes[path].parent === null);
+
+            rootPaths.forEach(rootPath => {
+                const rootElem = buildTreeNode(rootPath, nodes);
+                container.appendChild(rootElem);
+            });
+        }
+
+        // 遞迴建構子樹節點
+        function buildTreeNode(path, nodes) {
+            const node = nodes[path];
+            if (!node) return document.createTextNode('');
+
+            const li = document.createElement('li');
+            li.className = 'tree-node';
+            li.dataset.path = path;
+            li.dataset.title = node.title || '';
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'node-content';
+            contentDiv.onclick = () => showDrawer(path, node);
+
+            // 折疊按鈕 (如果包含子頁面)
+            const hasChildren = node.children && node.children.length > 0;
+            if (hasChildren) {
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'toggle-btn';
+                toggleBtn.innerHTML = '▼';
+                toggleBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleBtn.classList.toggle('collapsed');
+                    const childContainer = li.querySelector('.children-container');
+                    if (childContainer) childContainer.classList.toggle('collapsed');
+                };
+                contentDiv.appendChild(toggleBtn);
+            } else {
+                const icon = document.createElement('span');
+                icon.className = 'node-icon';
+                icon.innerText = node.is_leaf ? '📄' : '📁';
+                contentDiv.appendChild(icon);
+            }
+
+            // 標題與路徑
+            const titleSpan = document.createElement('span');
+            titleSpan.className = 'node-title';
+            titleSpan.innerText = node.title || '未命名頁面';
+
+            const pathSpan = document.createElement('span');
+            pathSpan.className = 'node-path';
+            pathSpan.innerText = path;
+
+            contentDiv.appendChild(titleSpan);
+            contentDiv.appendChild(pathSpan);
+
+            // 顏色狀態標籤標註 (探索狀態)
+            if (node.dynamic_verified_at) {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-dynamic';
+                badge.innerHTML = '🤖 已動態 AI 校對';
+                contentDiv.appendChild(badge);
+            } else if (node.verified_at) {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-static';
+                badge.innerHTML = '✅ 已靜態校對';
+                contentDiv.appendChild(badge);
+            } else if (node.status && node.status.startsWith('HTTP_4')) {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-error';
+                badge.innerHTML = '⚠️ 死鏈 404';
+                contentDiv.appendChild(badge);
+            } else {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-pending';
+                badge.innerHTML = '⏳ 待探索';
+                contentDiv.appendChild(badge);
+            }
+
+            li.appendChild(contentDiv);
+
+            // 遞迴渲染子節點
+            if (hasChildren) {
+                const ul = document.createElement('ul');
+                ul.className = 'children-container';
+                node.children.forEach(childPath => {
+                    const childLi = buildTreeNode(childPath, nodes);
+                    ul.appendChild(childLi);
+                });
+                li.appendChild(ul);
+            }
+
+            return li;
+        }
+
+        // 搜尋與篩選邏輯
+        function filterTree() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const filter = document.getElementById('statusFilter').value;
+
+            const allNodes = document.querySelectorAll('.tree-node');
+            allNodes.forEach(li => {
+                const path = li.dataset.path.toLowerCase();
+                const title = li.dataset.title.toLowerCase();
+                const nodeData = currentSitemap.nodes[li.dataset.path];
+
+                let matchesSearch = path.includes(query) || title.includes(query);
+                let matchesStatus = true;
+
+                if (filter === 'STATIC') matchesStatus = !!nodeData.verified_at;
+                if (filter === 'DYNAMIC') matchesStatus = !!nodeData.dynamic_verified_at;
+                if (filter === 'PENDING') matchesStatus = !nodeData.verified_at && !nodeData.dynamic_verified_at;
+
+                if (matchesSearch && matchesStatus) {
+                    li.style.display = '';
+                } else {
+                    li.style.display = 'none';
+                }
+            });
+        }
+
+        // 顯示側邊詳情抽屜
+        function showDrawer(path, node) {
+            document.getElementById('drawerPath').innerText = path;
+            document.getElementById('drawerTitle').innerText = node.title || '未命名頁面';
+            document.getElementById('drawerType').innerText = node.is_leaf ? '📄 實體葉頁面 (Leaf Page)' : '📁 目錄與類別節點 (Category Node)';
+            document.getElementById('drawerStaticTime').innerText = node.verified_at || '未校對';
+            document.getElementById('drawerDynamicTime').innerText = node.dynamic_verified_at || '未校對';
+            document.getElementById('drawerChildrenCount').innerText = node.children ? node.children.length : 0;
+            
+            document.getElementById('detailDrawer').classList.add('open');
+        }
+
+        function closeDrawer() {
+            document.getElementById('detailDrawer').classList.remove('open');
+        }
+
+        // 初始載入
+        window.onload = loadSelectedMap;
+    </script>
+</body>
+</html>
