@@ -9,7 +9,17 @@ Gemini + Playwright 自動化代理程式
 """
 
 import sys
-import time
+import config
+from reporting.single_page_report import (
+    get_map_records_dir,
+    get_page_report_relpath,
+    dump_single_page_settlement_report
+)
+from core.sitemap_engine import (
+    mark_dynamic_verified,
+    build_wcag_coverage_table
+)
+from core.login_engine import perform_ai_login_phase
 import argparse
 import os
 import datetime
