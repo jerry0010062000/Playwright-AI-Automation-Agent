@@ -9,6 +9,7 @@ from tkinter import ttk, messagebox
 import webbrowser
 import glob
 import random
+from reporting.single_page_report import get_page_report_relpath
 
 # ==========================================
 # 視覺主題與配色風格
@@ -1192,10 +1193,7 @@ class WCAGAgentGUI:
                 pass
 
         if not report_relpath:
-            clean_name = item_id.strip("/").replace("/", "_").replace(".", "_")
-            if not clean_name:
-                clean_name = "index"
-            report_relpath = os.path.join("records", map_stem, "pages", f"{clean_name}.md")
+            report_relpath = get_page_report_relpath(map_name, item_id)
 
         full_path = os.path.abspath(report_relpath)
         if os.path.exists(full_path):
