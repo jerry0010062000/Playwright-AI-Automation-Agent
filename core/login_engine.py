@@ -66,7 +66,8 @@ def perform_ai_login_phase(page, model_name: str, username: str, password: str) 
             pass
 
         screenshot_bytes = page.screenshot(type="png")
-        from browser_actions import scan_focus_path, execute_function_calls, get_function_responses
+        from browser_actions import scan_focus_path, execute_function_calls
+        from gemini_client import get_function_responses  # 正確導入位置
         from agent import get_interaction_tokens
         
         focus_map = scan_focus_path(page)

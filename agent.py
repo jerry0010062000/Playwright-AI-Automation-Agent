@@ -20,6 +20,14 @@ from core.sitemap_engine import (
     build_wcag_coverage_table
 )
 from core.login_engine import perform_ai_login_phase
+from core.static_audit import (
+    perform_local_site_audit,
+    check_task_suitability_for_axe,
+    is_wcag_guideline_static,
+    get_violation_wcag_level,
+    get_wcag_conformance_level
+)
+from core.prompt_builder import print_token_and_cost_summary, build_wcag_prompt
 import argparse
 import os
 import datetime
