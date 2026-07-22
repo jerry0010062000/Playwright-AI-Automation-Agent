@@ -100,12 +100,16 @@ def perform_local_site_audit(page, base_url: str, wcag_ver: str, sitemap_path: s
                     sdata = json.load(f)
                 if isinstance(sdata, dict) and "nodes" in sdata:
                     base_prefix = base_url.rstrip("/")
-                    for node_path in sdata["nodes"].keys():
+                    for node_path, node_info in sdata["nodes"].items():
+                        # 略過被標記為死鏈/異常的目錄或目錄節點
+                        # 同時跳過 CATEGORY 導覽節點(404 父節點)，因為它們本身不存在無法進行 WCAG 掃描
+                        if node_info.get("error") is True or str(node_info.get("status", "")).startswith("HTTP_") or node_info.get("status") == "CATEGORY":
+                            continue
                         if node_path == "/":
                             urls.append(base_prefix + "/")
                         else:
                             urls.append(base_prefix + node_path)
-                    print(f"[✓] 成功自 Sitemap ({actual_sitemap_path}) 載入全站 {len(urls)} 個完整 URL 進行 0-Token 代碼掃描！")
+                    print(f"[✓] 成功自 Sitemap ({actual_sitemap_path}) 載入全站 {len(urls)} 個有效 URL 進行 0-Token 代碼掃描！")
                 elif isinstance(sdata, list):
                     urls = sdata
             except Exception as sm_err:

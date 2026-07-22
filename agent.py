@@ -255,13 +255,15 @@ def parse_arguments():
                        help='啟用執行過程的記錄（儲存截圖、Markdown 報告與運行日誌至 records 目錄）。預設不儲存。')
     
     parser.add_argument('--sitemap', type=str, default=None,
-                       help='指定網站地圖路徑（JSON 格式網址清單）。指定後靜態巡檢將直接對地圖內的網址進行掃描。')
-    
-    parser.add_argument('--generate-sitemap', action='store_true', default=False,
-                       help='啟動 AI 進行網站結構探索，並將發現的所有同源子頁面網址繪製成網站地圖 sitemap.json。')
+                       help='指定網站地圖路徑（JSON 格式網址清單）。若不存在將自動創建最小地圖並開始探索。')
                        
     parser.add_argument('--verify-sitemap', action='store_true', default=False,
-                       help='啟動地圖動態走訪校對與更新引擎，校對標題、狀態碼並動態寫回 JSON 地圖檔案。')
+                       help='啟動地圖探索與校對引擎：自動發現新頁面、校對狀態碼、標題，並同步更新 JSON 地圖檔案。若地圖不存在會自動創建。')
+    
+    parser.add_argument('--username', type=str, default=None,
+                       help='自訂登入帳號，覆蓋 config.py 中的預設值')
+    parser.add_argument('--password', type=str, default=None,
+                       help='自訂登入密碼，覆蓋 config.py 中的預設值')
     
     return parser.parse_args()
 
@@ -775,14 +777,16 @@ def handle_auto_login(page, username, password):
         return False
 
 
-def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: int = None) -> dict:
+def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: int = None, model_name: str = None, username: str = None, password: str = None) -> dict:
     """
     動態走訪、校對並同步更新 Sitemap JSON 檔案（支援中斷續傳 checkpointing）。
     - 支援舊格式 (陣列) 與新格式 (字典 nodes)。
     - 校對 200/404 狀態、<title>。
     - 自動掃描同源連結，發現新頁面動態掛載至 children 並新增 node。
     - 支援 max_pages (回合上限) 分批中斷與寫回 checkpoint，優先續接未驗證頁面。
+    - 若地圖不存在，自動創建最小地圖（只包含根路徑）。
     - 覆蓋寫回 sitemap_path JSON。
+    - model_name, username, password: 用於會話超時時自動重新登入。
     """
     import urllib.parse
     print(f"[*] 啟動地圖動態走訪校對與更新引擎 (Sitemap Sync Engine)...")
@@ -791,9 +795,43 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
     if max_pages:
         print(f"  - 本次設定走訪上限: {max_pages} 頁 (避免超過回合數/Token庫存)")
     
+    # 若地圖不存在，自動創建最小地圖
     if not os.path.exists(sitemap_path):
-        print(f"[ERROR] 找不到地圖檔案: {sitemap_path}")
-        return {"success": False, "error": "File not found"}
+        print(f"[🌱] 地圖檔案不存在，自動創建最小地圖...")
+        
+        # 確保目錄存在
+        sitemap_dir = os.path.dirname(sitemap_path)
+        if sitemap_dir and not os.path.exists(sitemap_dir):
+            os.makedirs(sitemap_dir, exist_ok=True)
+        
+        # 創建最小地圖：只包含根路徑
+        parsed_url = urllib.parse.urlparse(base_url)
+        minimal_sitemap = {
+            "base_path": "/",
+            "total_pages": 1,
+            "target_url": base_url,
+            # "scan_languages": ["de"],  # 可選：限制掃描的語言版本，null 或不設置表示掃描所有語言
+            "nodes": {
+                "/": {
+                    "path": "/",
+                    "title": "未校對頁面",
+                    "parent": None,
+                    "children": [],
+                    "is_leaf": True,
+                    "depth": 0,
+                    "status": "UNVERIFIED"
+                }
+            }
+        }
+        
+        try:
+            with open(sitemap_path, "w", encoding="utf-8") as sf:
+                json.dump(minimal_sitemap, sf, ensure_ascii=False, indent=2)
+            print(f"[✅] 最小地圖已創建：{sitemap_path}")
+            print(f"  - 將從根路徑 '/' 開始自動探索整個網站結構")
+        except Exception as e:
+            print(f"[ERROR] 創建最小地圖失敗: {e}")
+            return {"success": False, "error": str(e)}
         
     try:
         with open(sitemap_path, "r", encoding="utf-8") as sf:
@@ -836,53 +874,238 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
     else:
         print(f"[ERROR] 未知的地圖格式: {type(raw_data)}")
         return {"success": False, "error": "Invalid format"}
+    
+    # 提取語言過濾配置（如果存在）
+    scan_languages = sitemap_data.get("scan_languages", None)  # None = 掃描所有語言
+    if scan_languages:
+        print(f"[📌] 語言過濾已啟用：只掃描 {scan_languages} 語言版本")
+    
+    # 從 sitemap metadata 讀取認證資訊（如果未提供）
+    if not username:
+        username = sitemap_data.get("default_username", "")
+    if not password:
+        password = sitemap_data.get("default_password", "")
 
-    # 優先排序佇列：未校對 (verified_at 為空) 排最前，已校對過排最後
-    unverified_paths = [p for p, n in nodes.items() if not n.get("verified_at")]
-    verified_paths = [p for p, n in nodes.items() if n.get("verified_at")]
+    # 優先排序佇列：未驗證存在 (initialized 為空/False) 排最前，已驗證存在排最後
+    # 特別處理：根節點 "/" 永遠排在最前面，以確保能第一時間掃描到所有頂層導航連結
+    
+    # 清理地圖中的靜態資源節點（圖片、CSS、JS 等）
+    static_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', 
+                        '.css', '.js', '.woff', '.woff2', '.ttf', '.eot', 
+                        '.pdf', '.zip', '.mp4', '.mp3', '.wav')
+    removed_static_resources = []
+    for path in list(nodes.keys()):
+        if path.lower().endswith(static_extensions):
+            # 從父節點的 children 中移除
+            parent_path = nodes[path].get("parent")
+            if parent_path and parent_path in nodes:
+                if path in nodes[parent_path].get("children", []):
+                    nodes[parent_path]["children"].remove(path)
+            # 從 nodes 中刪除
+            del nodes[path]
+            removed_static_resources.append(path)
+    
+    if removed_static_resources:
+        print(f"[🧹] 清理了 {len(removed_static_resources)} 個靜態資源節點 (圖片、CSS、JS 等)")
+    
+    # 清理後重新獲取節點列表
+    unverified_paths = [p for p, n in nodes.items() if not n.get("initialized")]
+    verified_paths = [p for p, n in nodes.items() if n.get("initialized")]
+    
+    # 將根節點和主要頁面優先排序（確保能快速掃描到新連結）
+    priority_paths = ["/", "/login", "/overview", "/advanced"]
+    priority_queue = [p for p in priority_paths if p in verified_paths]
+    other_verified = [p for p in verified_paths if p not in priority_paths]
 
     if verified_paths and unverified_paths:
         print(f"[*] [SITEMAP RESUME] 檢測到中斷點：已驗證 {len(verified_paths)} 頁，將優先續接剩餘未驗證的 {len(unverified_paths)} 頁！")
-        queue = unverified_paths + verified_paths
+        queue = unverified_paths + priority_queue + other_verified
     elif unverified_paths:
         queue = unverified_paths
     else:
-        # 全部都驗證過，若繼續執行則進行重新輪詢校對
+        # 全部都驗證過，若繼續執行則進行重新輪詢校對，優先掃描主要導航頁面
         print(f"[*] [SITEMAP FULL RE-VERIFY] 全站所有 {len(nodes)} 頁先前皆已校對完成，開始新一輪複查...")
-        queue = list(nodes.keys())
+        print(f"  💡 優先掃描根節點與主要導航頁面以發現新連結")
+        queue = priority_queue + other_verified
 
     visited = set()
     discovered_count = 0
     dead_count = 0
     updated_titles = 0
     visited_in_run = 0
+    dead_link_patterns = set()  # 記錄已知的死鏈模式（如：以 ../manual/ 開頭的路徑）
+    
+    # 计算实际总数用于进度显示
+    total_to_scan = len(queue)
+    
+    # 预估扫描时间（每页约 1.5 秒）
+    estimated_time_seconds = total_to_scan * 1.5
+    estimated_minutes = int(estimated_time_seconds / 60)
+    print(f"[⏱️] 預計掃描時間: 約 {estimated_minutes} 分鐘 ({total_to_scan} 頁 × 1.5 秒/頁)")
+    print(f"[💡] 提示: 掃描過程中會即時檢測登入狀態，自動重新登入")
 
     while queue:
         if max_pages and visited_in_run >= max_pages:
-            remaining_unverified = len([p for p, n in nodes.items() if not n.get("verified_at") and p not in visited])
+            remaining_unverified = len([p for p, n in nodes.items() if not n.get("initialized") and p not in visited])
             print(f"[⏸️] 已達到本次設定的最高走訪回合數 ({max_pages} 頁)。")
             print(f"  - 本次進度已實時寫入 JSON 檔中斷點 (Checkpoint)。")
             print(f"  - 下次再執行此地圖更新時，將自動跳過已驗證頁面，繼續校對剩餘 {remaining_unverified} 頁！")
             break
 
         rel_path = queue.pop(0)
+        if rel_path not in nodes:
+            continue
         if rel_path in visited:
+            continue
+            
+        # 檢查是否匹配已知的死鏈模式
+        is_known_dead_pattern = False
+        for pattern in dead_link_patterns:
+            if rel_path.startswith(pattern):
+                is_known_dead_pattern = True
+                # 直接刪除該節點，不浪費時間訪問
+                if rel_path in nodes:
+                    parent_path = nodes[rel_path].get("parent")
+                    if parent_path and parent_path in nodes:
+                        if rel_path in nodes[parent_path].get("children", []):
+                            nodes[parent_path]["children"].remove(rel_path)
+                    del nodes[rel_path]
+                break
+        
+        if is_known_dead_pattern:
             continue
         visited.add(rel_path)
         visited_in_run += 1
 
         full_url = urllib.parse.urljoin(base_url, rel_path)
-        print(f"[*] [SITEMAP VERIFY] [{visited_in_run}/{max_pages if max_pages else len(nodes)}] 正在走訪頁面: {rel_path} -> {full_url}")
+        
+        # 顯示進度百分比
+        progress_pct = int((visited_in_run / total_to_scan) * 100) if total_to_scan > 0 else 0
+        print(f"[*] [SITEMAP VERIFY] [{visited_in_run}/{total_to_scan}] ({progress_pct}%) 正在走訪頁面: {rel_path} -> {full_url}")
 
         try:
             response = page.goto(full_url, timeout=12000, wait_until="domcontentloaded")
+            # 額外等待 1 秒以確保 React SPA 完成客戶端渲染與所有連結載入 (加速掃描)
+            page.wait_for_timeout(1000)
+            
+            # ⚡ 立即檢測 URL 跳轉（提早發現登出問題）
+            actual_url = page.url.lower()
+            expected_url = full_url.lower()
+            
+            # 檢查是否被跳轉到登入頁（會話超時的最早信號）
+            if actual_url != expected_url and "login" in actual_url and "login/status" not in actual_url and "login/clienttime" not in actual_url:
+                print(f"[⚠️] 檢測到頁面跳轉至登入頁 ({rel_path} → {page.url})")
+                print(f"[⚠️] 會話已失效，正在重新登入...")
+                
+                # 嘗試重新登入
+                if model_name and username and password:
+                    try:
+                        from core.login_engine import perform_ai_login_phase
+                        login_result = perform_ai_login_phase(
+                            page=page,
+                            model_name=model_name,
+                            username=username,
+                            password=password
+                        )
+                        
+                        if login_result.get("success"):
+                            print(f"[✓] 重新登入成功！重新訪問目標頁面: {rel_path}")
+                            # 重新訪問原始目標頁面
+                            response = page.goto(full_url, timeout=12000, wait_until="domcontentloaded")
+                            page.wait_for_timeout(1000)
+                        else:
+                            print(f"[✗] 重新登入失敗！停止掃描以避免產生虛假死鏈。")
+                            break
+                    except Exception as e:
+                        print(f"[✗] 重新登入錯誤: {e}。停止掃描。")
+                        break
+                else:
+                    print(f"[✗] 缺少認證資訊 (model/username/password)，無法自動重新登入。停止掃描。")
+                    break
+            
+            # 滾動頁面以觸發懶加載內容和隱藏的連結
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(300)
+                page.evaluate("window.scrollTo(0, 0)")
+            except Exception:
+                pass
+            
             status_code = response.status if response else 200
 
-            if status_code >= 400 or not response:
-                print(f"  ⚠️ 死鏈/狀態異常 HTTP {status_code}")
-                nodes[rel_path]["status"] = f"HTTP_{status_code}"
-                nodes[rel_path]["error"] = True
-                dead_count += 1
+            # 檢查前端 Client-side SPA 404 (例如 React Router 渲染的 404，雖然 HTTP 返回 200)
+            is_client_side_404 = False
+            if status_code < 400 and response:
+                try:
+                    title_lower = (page.title() or "").lower()
+                    if "404" in title_lower or "not found" in title_lower:
+                        is_client_side_404 = True
+                    else:
+                        is_client_side_404 = page.evaluate("""
+                            (() => {
+                                const txt = document.body.innerText.toLowerCase();
+                                const has404 = txt.includes("404");
+                                const hasNotFound = txt.includes("not found") || 
+                                                    txt.includes("notfound") || 
+                                                    txt.includes("找不到") || 
+                                                    txt.includes("不存在") || 
+                                                    txt.includes("無此") ||
+                                                    txt.includes("error");
+                                return has404 && hasNotFound;
+                            })()
+                        """)
+                except Exception:
+                    pass
+
+            if status_code >= 400 or not response or is_client_side_404:
+                has_children = len(nodes[rel_path].get("children", [])) > 0
+                if has_children:
+                    # 情況 A：它是某個分頁的父節點（目錄節點）但本身不存在。
+                    # 我們保留它以維持樹狀階層結構，標記其為「導覽型目錄」，不作為死鏈報錯。
+                    print(f"  📁 檢測到目錄節點為導覽目錄 (HTTP {status_code}{'，前端 404' if is_client_side_404 else ''})。標記為導覽目錄。")
+                    nodes[rel_path]["status"] = "CATEGORY"
+                    nodes[rel_path]["error"] = False
+                    nodes[rel_path]["initialized"] = True
+                    nodes[rel_path]["initialized_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # 注意：CATEGORY 節點不計入 dead_count，因為它們是正常的導覽結構，非實際錯誤
+                    continue
+                else:
+                    # 情況 B：它是不具子節點的實體葉頁面（死鏈）。
+                    # 我們將其自地圖中徹底移除並執行自癒。
+                    print(f"  ⚠️ 檢測到實體死鏈 (HTTP {status_code}{'，前端 404' if is_client_side_404 else ''})。自地圖中移除並自癒結構...")
+                    
+                    # 記錄死鏈模式（如果是以 ../ 開頭的相對路徑）
+                    if rel_path.startswith("../"):
+                        # 提取前綴作為模式（例如 ../manual/ 或 ../login/）
+                        parts = rel_path.split("/")
+                        if len(parts) >= 3:
+                            pattern = "/".join(parts[:3]) + "/"  # 例如 ../manual/
+                            dead_link_patterns.add(pattern)
+                            print(f"  📝 記錄死鏈模式: {pattern} (後續將自動跳過相似路徑)")
+                    
+                    # 自其父節點 of children 陣列中移除
+                    parent_path = nodes[rel_path].get("parent")
+                    if parent_path in nodes:
+                        if rel_path in nodes[parent_path].get("children", []):
+                            try:
+                                nodes[parent_path]["children"].remove(rel_path)
+                            except Exception:
+                                pass
+                                
+                    # 亦自其所有子節點重設其 parent 屬性，並移交給該節點的父節點 (繼承關係)
+                    for child_path in nodes[rel_path].get("children", []):
+                        if child_path in nodes:
+                            nodes[child_path]["parent"] = parent_path
+                            if parent_path in nodes:
+                                if "children" not in nodes[parent_path]:
+                                    nodes[parent_path]["children"] = []
+                                if child_path not in nodes[parent_path]["children"]:
+                                    nodes[parent_path]["children"].append(child_path)
+                                    
+                    # 從節點字典中刪除該節點
+                    del nodes[rel_path]
+                    dead_count += 1
+                    continue
             else:
                 current_title = page.title() or nodes[rel_path].get("title", "")
                 if current_title and nodes[rel_path].get("title") != current_title:
@@ -891,23 +1114,71 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
 
                 nodes[rel_path]["status"] = "OK"
                 nodes[rel_path]["error"] = False
+                nodes[rel_path]["initialized"] = True
 
-                # 提取同源連結
-                extract_links_script = """
+                # 提取同源連結（增強版：支援 React Router Link 和動態渲染）
+                extract_links_script = r"""
                 (() => {
-                    return Array.from(document.querySelectorAll('a[href]'))
-                        .map(a => a.href)
-                        .filter(href => {
+                    // 等待可能的動態渲染完成
+                    const links = new Set();
+                    
+                    // 方法 1: 標準 <a> 標籤
+                    document.querySelectorAll('a[href]').forEach(a => {
+                        links.add(a.href);  // 使用 .href 獲取絕對 URL
+                    });
+                    
+                    // 方法 2: React Router Link 組件可能渲染的任何帶有 href 的元素
+                    document.querySelectorAll('[href]').forEach(el => {
+                        // 使用 .href 獲取絕對 URL（如果存在），否則手動轉換相對路徑
+                        let absoluteUrl;
+                        if (el.href) {
+                            // 如果元素有 .href 屬性（<a>, <area>, <link> 等），直接使用
+                            absoluteUrl = el.href;
+                        } else {
+                            // 否則手動將相對路徑轉換為絕對路徑
                             try {
-                                const u = new URL(href);
-                                return u.host === window.location.host;
-                            } catch(e) { return false; }
-                        });
+                                const relativeUrl = el.getAttribute('href');
+                                absoluteUrl = new URL(relativeUrl, window.location.href).href;
+                            } catch(e) {
+                                return;  // 無效的 URL，跳過
+                            }
+                        }
+                        links.add(absoluteUrl);
+                    });
+                    
+                    // 方法 3: 檢查所有按鈕和可點擊元素的 onClick 事件（可能包含路由跳轉）
+                    document.querySelectorAll('button, [role="button"], [onclick]').forEach(el => {
+                        const onclick = el.getAttribute('onclick') || el.textContent;
+                        if (onclick) {
+                            // 嘗試從 onClick 中提取路由路徑
+                            const pathMatch = onclick.match(/['"]\/[^'"]*['"]/) || 
+                                            onclick.match(/navigate.*?['"]\/[^'"]*['"]/) ||
+                                            onclick.match(/to:\s*['"]\/[^'"]*['"]/)
+                            if (pathMatch && pathMatch[0]) {
+                                const path = pathMatch[0].replace(/['"]/g, '');
+                                links.add(window.location.origin + path);
+                            }
+                        }
+                    });
+                    
+                    // 過濾同源連結
+                    return Array.from(links).filter(href => {
+                        if (!href || href === 'null') return false;
+                        try {
+                            const u = new URL(href, window.location.href);
+                            return u.host === window.location.host;
+                        } catch(e) { 
+                            return false; 
+                        }
+                    });
                 })()
                 """
                 try:
                     discovered_hrefs = page.evaluate(extract_links_script)
-                except Exception:
+                    if discovered_hrefs:
+                        print(f"  🔍 在當前頁面發現 {len(discovered_hrefs)} 個同源連結")
+                except Exception as e:
+                    print(f"  ⚠️ 提取連結失敗: {e}")
                     discovered_hrefs = []
 
                 if "children" not in nodes[rel_path]:
@@ -919,12 +1190,51 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
                     if pu.query:
                         child_rel += "?" + pu.query
 
-                    if child_rel == rel_path or child_rel.startswith("javascript:") or child_rel.startswith("#"):
+                    # 跳過無效路徑、靜態資源文件（圖片、CSS、JS 等）
+                    static_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', 
+                                       '.css', '.js', '.woff', '.woff2', '.ttf', '.eot', 
+                                       '.pdf', '.zip', '.mp4', '.mp3', '.wav')
+                    
+                    # 跳過 JSON API 端點（包括帶查詢參數的）
+                    # 例如：/data/PhoneBook.json?search=A
+                    is_json_endpoint = '.json' in child_rel.lower().split('?')[0]
+                    
+                    # 額外過濾：跳過明顯錯誤的相對路徑（不是以 /html/ 開頭且不是根路徑）
+                    # 例如：overview/index.html, phone/phone_internet.html 等
+                    # 這些是由於 HTML 中的相對路徑被錯誤解析導致的
+                    is_invalid_relative = (
+                        child_rel != "/" and 
+                        not child_rel.startswith("/html/") and 
+                        not child_rel.startswith("/data/") and
+                        "/" in child_rel and
+                        not child_rel.startswith("http")
+                    )
+                    
+                    # 語言過濾（基於 sitemap 配置）
+                    is_unwanted_lang = False
+                    if scan_languages:  # 如果配置了語言過濾
+                        if '?lang=' in child_rel or '&lang=' in child_rel:
+                            # 提取當前鏈接的語言參數
+                            import re
+                            lang_match = re.search(r'[?&]lang=([a-z]{2})', child_rel)
+                            if lang_match:
+                                current_lang = lang_match.group(1)
+                                if current_lang not in scan_languages:
+                                    is_unwanted_lang = True
+                    
+                    if (child_rel == rel_path or 
+                        child_rel.startswith("javascript:") or 
+                        child_rel.startswith("#") or 
+                        child_rel.lower().endswith(static_extensions) or
+                        is_json_endpoint or
+                        is_invalid_relative or
+                        is_unwanted_lang):
                         continue
 
                     if child_rel not in nodes[rel_path]["children"]:
                         nodes[rel_path]["children"].append(child_rel)
 
+                    # 如果節點完全不存在，創建新節點
                     if child_rel not in nodes:
                         depth = child_rel.strip("/").count("/") + 1 if child_rel != "/" else 0
                         nodes[child_rel] = {
@@ -937,17 +1247,20 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
                             "status": "UNVERIFIED"
                         }
                         discovered_count += 1
-                        if child_rel not in visited and child_rel not in queue:
-                            queue.append(child_rel)
+                        print(f"  ✨ 發現新頁面節點: {child_rel} (父節點: {rel_path})")
+                    
+                    # 將未走訪過且不在隊列中的節點加入隊列（包括重新發現的未初始化節點）
+                    if child_rel not in visited and child_rel not in queue:
+                        queue.append(child_rel)
 
             # 記錄通過時間戳記 (Checkpointing)
-            nodes[rel_path]["verified_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            nodes[rel_path]["initialized_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         except Exception as err:
             print(f"  ⚠️ 走訪頁面失敗 {rel_path}: {err}")
             nodes[rel_path]["status"] = "ERROR"
             nodes[rel_path]["error"] = str(err)
-            nodes[rel_path]["verified_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            nodes[rel_path]["initialized_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             dead_count += 1
 
         # 每走訪 5 個頁面實時寫入一次檔案防崩潰
@@ -979,6 +1292,8 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
         print(f"  - 動態新發現頁面: {discovered_count}")
         print(f"  - 標題更正次數: {updated_titles}")
         print(f"  - 死鏈/異常數: {dead_count}")
+        if dead_link_patterns:
+            print(f"  - 識別死鏈模式: {len(dead_link_patterns)} 個 (已自動跳過相似路徑)")
         print(f"  - 最新頁面總數: {len(nodes)}")
         print(f"[✓] 已成功同步並覆蓋更新地圖檔: '{sitemap_path}'")
         print("=" * 60)
@@ -1025,9 +1340,7 @@ def main():
         return
     
     # 決定任務
-    if args.generate_sitemap:
-        user_task = "請登入網站，並點擊展開每一個選單、每一個設定分頁以探索全站所有能存取的主功能與子頁面路徑。一旦發現任何新的同源 URL 路由，請記錄下來。任務結束時，請在您的最後回覆中，以標準的 JSON 陣列格式輸出您發現的所有獨特網址路徑清單，例如：[\"http://localhost:8000/\", \"http://localhost:8000/advanced\", \"http://localhost:8000/advanced/network/wifi/settings\"]。請確保只返回該 JSON 網址陣列且格式正確，這對後續的測試十分重要。"
-    elif args.task:
+    if args.task:
         user_task = args.task
     elif args.content:
         user_task = " ".join(args.content)
@@ -1057,9 +1370,9 @@ def main():
     # 進行適用度評估：若有 WCAG 指南，優先套用 rule-based 靜態與動態判定，免去 AI 評估成本
     is_axe_only = False
     axe_reason = ""
-    if args.generate_sitemap:
-        is_axe_only = False
-        axe_reason = "啟動 AI 全站地圖探索繪製任務。"
+    if args.verify_sitemap:
+        is_axe_only = True
+        axe_reason = "啟動地圖探索與校對任務 (不需 AI 模型介入)"
     elif args.wcag:
         if is_wcag_guideline_static(args.wcag):
             is_axe_only = True
@@ -1069,7 +1382,7 @@ def main():
             axe_reason = f"WCAG {args.wcag} 為動態互動指南，需要視覺與鍵盤互動，啟動 AI 巡檢。"
     else:
         # 非 WCAG 指南任務，再由輕量級 AI 判定是否為 Axe 靜態任務
-        is_axe_only, axe_reason = check_task_suitability_for_axe(user_task, extra_instructions, args.model)
+        is_axe_only, axe_wcag_ver, axe_reason = check_task_suitability_for_axe(user_task, extra_instructions, args.model)
 
     if is_axe_only:
         print("\n" + "="*60)
@@ -1093,8 +1406,10 @@ def main():
             
             # 若配置了自動登入資訊，則在爬取前執行 AI 預先登入
             from config import AUTO_LOGIN_USERNAME, AUTO_LOGIN_PASSWORD
-            if AUTO_LOGIN_USERNAME or AUTO_LOGIN_PASSWORD:
-                login_toks = perform_ai_login_phase(page, args.model, AUTO_LOGIN_USERNAME, AUTO_LOGIN_PASSWORD)
+            login_user = args.username if args.username is not None else AUTO_LOGIN_USERNAME
+            login_pass = args.password if args.password is not None else AUTO_LOGIN_PASSWORD
+            if login_user or login_pass:
+                login_toks = perform_ai_login_phase(page, args.model, login_user, login_pass)
                 global_total_input_tokens += login_toks["input"]
                 global_total_output_tokens += login_toks["output"]
                 if login_toks.get("success") is False:
@@ -1108,8 +1423,18 @@ def main():
             # 執行地圖動態校對與更新引擎 (若開啟 --verify-sitemap)
             if args.verify_sitemap:
                 sitemap_target = args.sitemap if args.sitemap else os.path.join("sitemaps", "sitemap.json")
-                max_p = args.max_turns if args.max_turns else None
-                verify_and_sync_sitemap(page, target_url, sitemap_target, max_pages=max_p)
+                # 走訪初始化任務完全程式化不消耗 token，不受 args.max_turns 限制，設定 max_pages 為 None (無上限)
+                # 傳入認證資訊以支援自動重新登入
+                verify_and_sync_sitemap(
+                    page=page, 
+                    base_url=target_url, 
+                    sitemap_path=sitemap_target, 
+                    max_pages=None,
+                    model_name=args.model,
+                    username=login_user,
+                    password=login_pass
+                )
+                return
 
             # 建立報告內容與檔名
             report_lines = []
@@ -1543,8 +1868,10 @@ def main():
 
         # 若配置了自動登入資訊，且當前不在 wcag 流程中，在此自訂任務流程中也進行 AI 預先登入
         from config import AUTO_LOGIN_USERNAME, AUTO_LOGIN_PASSWORD
-        if AUTO_LOGIN_USERNAME or AUTO_LOGIN_PASSWORD:
-            login_toks = perform_ai_login_phase(page, args.model, AUTO_LOGIN_USERNAME, AUTO_LOGIN_PASSWORD)
+        login_user = args.username if args.username is not None else AUTO_LOGIN_USERNAME
+        login_pass = args.password if args.password is not None else AUTO_LOGIN_PASSWORD
+        if login_user or login_pass:
+            login_toks = perform_ai_login_phase(page, args.model, login_user, login_pass)
             global_total_input_tokens += login_toks["input"]
             global_total_output_tokens += login_toks["output"]
             if login_toks.get("success") is False:
@@ -1695,67 +2022,6 @@ def main():
             except Exception as e:
                 print(f"[WARNING] 提取網站地圖失敗: {e}")
 
-        # 初始已發現網頁字典 (用於地圖繪製與補完任務，記錄與維護每個頁面的狀態：{"url": {"title": "...", "fully_explored": bool}})
-        discovered_pages = {}
-        if args.generate_sitemap and args.sitemap and os.path.exists(args.sitemap):
-            try:
-                with open(args.sitemap, "r", encoding="utf-8") as sf:
-                    raw_data = json.load(sf)
-                    for item in raw_data:
-                        if isinstance(item, str):
-                            discovered_pages[item.strip()] = {"fully_explored": False, "title": ""}
-                        elif isinstance(item, dict) and "url" in item:
-                            url = item["url"].strip()
-                            discovered_pages[url] = {
-                                "fully_explored": item.get("fully_explored", False),
-                                "title": item.get("title", "")
-                            }
-                print(f"[*] [COMPLETION] 成功從基底地圖檔載入 {len(discovered_pages)} 個網頁節點。")
-            except Exception:
-                pass
-        
-        initial_url = args.url or INITIAL_URL
-        if initial_url not in discovered_pages:
-            try:
-                init_title = page.title()
-            except Exception:
-                init_title = ""
-            discovered_pages[initial_url] = {"fully_explored": False, "title": init_title}
-
-        # 若為地圖繪製任務，且有指定 sitemap 檔案，進行「地圖補完」任務提示詞組裝
-        if args.generate_sitemap and args.sitemap and os.path.exists(args.sitemap):
-            fully_explored_list = [u for u, info in discovered_pages.items() if info.get("fully_explored")]
-            unexplored_list = [u for u, info in discovered_pages.items() if not info.get("fully_explored")]
-            
-            completion_prompt = (
-                f"\n\n【🗺️ 網站地圖補完與探索任務說明】\n"
-                f"目前我們已經掌握了網站中的以下頁面：\n"
-            )
-            if fully_explored_list:
-                completion_prompt += f"- 🟢 已完全探明（無新子頁）的頁面：\n{json.dumps(fully_explored_list, indent=2, ensure_ascii=False)}\n"
-            if unexplored_list:
-                completion_prompt += f"- 🟡 待進一步探索（可能含有未探明子頁）的頁面：\n{json.dumps(unexplored_list, indent=2, ensure_ascii=False)}\n"
-            
-            completion_prompt += (
-                f"\n請避開已完全探明的頁面，集中精力在待探索頁面上，點擊其中的選單、按鈕或連結來發現新的路由分頁。\n"
-                f"結束時，請在您的最終回應中，輸出包含所有舊網址與新發現網址的完整地圖清單，格式為 JSON 物件陣列。範例：\n"
-                f"[\n"
-                f"  {{\n"
-                f"    \"url\": \"http://192.168.1.1/dashboard\",\n"
-                f"    \"title\": \"Dashboard\",\n"
-                f"    \"fully_explored\": true\n"
-                f"  }},\n"
-                f"  {{\n"
-                f"    \"url\": \"http://192.168.1.1/wan\",\n"
-                f"    \"title\": \"WAN Settings\",\n"
-                f"    \"fully_explored\": false\n"
-                f"  }}\n"
-                f"]\n"
-                f"請將已完全點選完所有連結、無任何未探索子頁的頁面標記為 `\"fully_explored\": true`；其餘可能仍有未探索項目的標記為 `false`。"
-            )
-            user_task += completion_prompt
-            print(f"[*] [SITEMAP COMPLETION] 已載入地圖補完基底，含 {len(fully_explored_list)} 個已完全探明、{len(unexplored_list)} 個待探索頁面。")
-
         # 建立第一次互動
         interaction = agent.create_initial_interaction(user_task, initial_screenshot, extra_instructions)
         
@@ -1832,18 +2098,6 @@ def main():
             total_output_tokens += turn_tokens["output"]
             total_tokens += turn_tokens["total"]
             print(f"[*] Turn {turn + 1} Token Usage - Input: {turn_tokens['input']}, Output: {turn_tokens['output']}, Total: {turn_tokens['total']}")
-            
-            # 記錄當前頁面 URL 作為已發現頁面，確保即使崩潰或中斷也絕不漏掉任何走訪過的網頁
-            curr_url = page.url
-            if curr_url and curr_url not in discovered_pages:
-                from urllib.parse import urlparse
-                base_host = urlparse(args.url or INITIAL_URL).netloc
-                if urlparse(curr_url).netloc == base_host:
-                    try:
-                        title = page.title()
-                    except Exception:
-                        title = ""
-                    discovered_pages[curr_url] = {"fully_explored": False, "title": title}
         
         else:
             print(f"\n[!] Max turns reached ({args.max_turns})")
@@ -1870,87 +2124,6 @@ def main():
             except Exception as summary_err:
                 print(f"[!] Failed to get final summary from AI: {summary_err}")
         
-        # 如果是生成網站地圖任務，在結束前進行地圖解析與存檔
-        if args.generate_sitemap:
-            print("\n[*] 偵測到網站地圖繪製任務，正在解析並儲存結果...")
-            try:
-                final_text = agent.extract_text_response(interaction)
-            except Exception:
-                final_text = ""
-                
-            # 若因達到最大回合數而有生成 summary，將其附加在 final_text 之後，防止地圖存在於總結中卻沒被抓到
-            if 'summary' in locals() and summary:
-                final_text += "\n" + summary
-                
-            # 整合並去重：AI 回傳清單 + 歷史走訪記錄 (discovered_pages)
-            ai_discovered = {}
-            if json_match:
-                try:
-                    parsed_items = json.loads(json_match.group(1))
-                    if isinstance(parsed_items, list):
-                        for item in parsed_items:
-                            if isinstance(item, str):
-                                ai_discovered[item.strip()] = {"fully_explored": False, "title": ""}
-                            elif isinstance(item, dict) and "url" in item:
-                                url = item["url"].strip()
-                                ai_discovered[url] = {
-                                    "fully_explored": item.get("fully_explored", False),
-                                    "title": item.get("title", "")
-                                }
-                except Exception as json_err:
-                    print(f"[WARNING] 無法使用物件 JSON 解析 AI 的地圖回覆: {json_err}")
-
-            if not ai_discovered:
-                # Fallback to regex text search
-                from urllib.parse import urlparse
-                base_host = urlparse(args.url or INITIAL_URL).netloc
-                raw_urls = re.findall(r"(https?://[^\s`\"'()<>]+)", final_text)
-                for ru in raw_urls:
-                    clean_ru = ru.rstrip(".,;]}`\"')")
-                    if urlparse(clean_ru).netloc == base_host:
-                        ai_discovered[clean_ru] = {"fully_explored": False, "title": ""}
-
-            # 合併 AI 回傳與走訪記錄
-            for url, info in ai_discovered.items():
-                if url not in discovered_pages:
-                    discovered_pages[url] = info
-                else:
-                    # 如果 AI 有明確標註 fully_explored，以 AI 的標註為準
-                    if info.get("fully_explored"):
-                        discovered_pages[url]["fully_explored"] = True
-                    if info.get("title") and not discovered_pages[url].get("title"):
-                        discovered_pages[url]["title"] = info["title"]
-
-            # 組裝最終寫入格式的 JSON List
-            final_sitemap = []
-            for url, info in discovered_pages.items():
-                final_sitemap.append({
-                    "url": url,
-                    "title": info.get("title") or "",
-                    "fully_explored": info.get("fully_explored", False)
-                })
-
-            if not final_sitemap:
-                final_sitemap = [{
-                    "url": args.url or INITIAL_URL,
-                    "title": "Home",
-                    "fully_explored": False
-                }]
-                
-            os.makedirs("sitemaps", exist_ok=True)
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            sitemap_file_path = args.sitemap or f"sitemaps/sitemap_{timestamp}.json"
-            
-            try:
-                with open(sitemap_file_path, "w", encoding="utf-8") as sf:
-                    json.dump(final_sitemap, sf, indent=2, ensure_ascii=False)
-                print(f"[✓] 網站地圖已成功繪製並儲存至: {sitemap_file_path}")
-                print(f"    包含 {len(final_sitemap)} 個網頁節點")
-                report_file.write(f"\n## 🗺️ 已成功繪製網站地圖\n已儲存至 `{sitemap_file_path}`，共包含 {len(final_sitemap)} 個網址分頁。\n\n")
-                report_file.flush()
-            except Exception as save_err:
-                print(f"[ERROR] 儲存網站地圖檔案失敗: {save_err}")
-                
         # 輸出 Token 統計與計費資訊至主控台、報告與日誌
         print_token_and_cost_summary(args.model, total_input_tokens, total_output_tokens, report_file)
         printed_token_summary = True

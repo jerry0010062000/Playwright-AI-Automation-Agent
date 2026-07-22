@@ -126,9 +126,11 @@
         }
 
         .stat-card.total::before { background: var(--accent-blue); }
+        .stat-card.full::before { background: #fb923c; }
         .stat-card.static::before { background: var(--accent-green); }
         .stat-card.dynamic::before { background: var(--accent-cyan); }
         .stat-card.pending::before { background: var(--accent-amber); }
+        .stat-card.error-card::before { background: var(--accent-red); }
 
         .stat-label {
             font-size: 0.8rem;
@@ -246,6 +248,12 @@
             border: 1px solid rgba(16, 185, 129, 0.3);
         }
 
+        .badge-full {
+            background: rgba(251, 146, 60, 0.15);
+            color: #fb923c;
+            border: 1px solid rgba(251, 146, 60, 0.3);
+        }
+
         .badge-dynamic {
             background: rgba(6, 182, 212, 0.15);
             color: #38bdf8;
@@ -256,6 +264,12 @@
             background: rgba(245, 158, 11, 0.15);
             color: #fbbf24;
             border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .badge-initialized {
+            background: rgba(167, 139, 250, 0.15);
+            color: #c084fc;
+            border: 1px solid rgba(167, 139, 250, 0.3);
         }
 
         .badge-error {
@@ -367,9 +381,11 @@
             <input type="text" id="searchInput" placeholder="🔍 搜尋 URL 或頁面標題..." oninput="filterTree()">
             <select id="statusFilter" onchange="filterTree()">
                 <option value="ALL">全部狀態 (All Status)</option>
+                <option value="FULL">🌟 僅看靜/動雙重校對</option>
                 <option value="STATIC">✅ 僅看已靜態校對</option>
                 <option value="DYNAMIC">🤖 僅看已動態 AI 校對</option>
                 <option value="PENDING">⏳ 僅看待探索頁面</option>
+                <option value="ERROR">❌ 僅看異常與死鏈</option>
             </select>
             <select id="mapSelector" onchange="loadSelectedMap()">
                 <option value="smart4-map.json">Speedport Smart 4 (smart4-map.json)</option>
@@ -386,6 +402,10 @@
             <span class="stat-label">總頁面數 (Total Pages)</span>
             <span class="stat-value" id="statTotal">0</span>
         </div>
+        <div class="stat-card full">
+            <span class="stat-label">雙重完整校對 (Dual Audited)</span>
+            <span class="stat-value" id="statFull" style="color: #fb923c;">0</span>
+        </div>
         <div class="stat-card static">
             <span class="stat-label">已靜態校對 (Static Verified)</span>
             <span class="stat-value" id="statStatic">0</span>
@@ -397,6 +417,10 @@
         <div class="stat-card pending">
             <span class="stat-label">待探索/未完成 (Pending)</span>
             <span class="stat-value" id="statPending">0</span>
+        </div>
+        <div class="stat-card error-card">
+            <span class="stat-label">異常與死鏈 (Errors/Dead Links)</span>
+            <span class="stat-value" id="statError" style="color: var(--accent-red);">0</span>
         </div>
     </div>
 
@@ -427,12 +451,20 @@
             <span class="field-val" id="drawerType">-</span>
         </div>
         <div class="drawer-field">
+            <span class="field-title">存在認證時間 (Initialized At)</span>
+            <span class="field-val" id="drawerInitializedTime">-</span>
+        </div>
+        <div class="drawer-field">
             <span class="field-title">靜態校對時間 (Static Verified At)</span>
             <span class="field-val" id="drawerStaticTime">-</span>
         </div>
         <div class="drawer-field">
             <span class="field-title">動態 AI 校對時間 (Dynamic Verified At)</span>
             <span class="field-val" id="drawerDynamicTime">-</span>
+        </div>
+        <div class="drawer-field">
+            <span class="field-title">連線狀態 (HTTP Status)</span>
+            <span class="field-val" id="drawerStatus">-</span>
         </div>
         <div class="drawer-field">
             <span class="field-title">子頁面數量 (Children Count)</span>
@@ -482,18 +514,33 @@
             
             let staticCount = 0;
             let dynamicCount = 0;
+            let fullCount = 0;
             let pendingCount = 0;
+            let errorCount = 0;
 
             nodes.forEach(n => {
-                if (n.verified_at) staticCount++;
-                if (n.dynamic_verified_at) dynamicCount++;
-                if (!n.verified_at && !n.dynamic_verified_at) pendingCount++;
+                const statusStr = String(n.status || "OK");
+                const isDead = n.error === true || statusStr.includes("404") || statusStr.includes("500") || statusStr.includes("HTTP_");
+                
+                if (isDead) {
+                    errorCount++;
+                } else if (n.verified_at && n.dynamic_verified_at) {
+                    fullCount++;
+                } else if (n.dynamic_verified_at) {
+                    dynamicCount++;
+                } else if (n.verified_at) {
+                    staticCount++;
+                } else {
+                    pendingCount++;
+                }
             });
 
             document.getElementById('statTotal').innerText = total;
-            document.getElementById('statStatic').innerText = `${staticCount} (${Math.round(staticCount/total*100)}%)`;
-            document.getElementById('statDynamic').innerText = `${dynamicCount} (${Math.round(dynamicCount/total*100)}%)`;
+            document.getElementById('statFull').innerText = `${fullCount} (${total ? Math.round(fullCount/total*100) : 0}%)`;
+            document.getElementById('statStatic').innerText = `${staticCount} (${total ? Math.round(staticCount/total*100) : 0}%)`;
+            document.getElementById('statDynamic').innerText = `${dynamicCount} (${total ? Math.round(dynamicCount/total*100) : 0}%)`;
             document.getElementById('statPending').innerText = pendingCount;
+            document.getElementById('statError').innerText = errorCount;
         }
 
         // 渲染樹狀視圖 (以親子階層關係為基礎，避免交叉連線亂象)
@@ -504,17 +551,34 @@
             if (!currentSitemap || !currentSitemap.nodes) return;
             const nodes = currentSitemap.nodes;
 
-            // 尋找根節點 (Parent 為 null 或 /html)
-            const rootPaths = Object.keys(nodes).filter(path => !nodes[path].parent || nodes[path].parent === null);
+            // 1. 動態重構乾淨的父子關係映射，排除 distant duplicates，僅保留 direct children
+            const cleanChildrenMap = {};
+            Object.keys(nodes).forEach(path => {
+                cleanChildrenMap[path] = [];
+            });
+            Object.keys(nodes).forEach(path => {
+                const parent = nodes[path].parent;
+                if (parent && cleanChildrenMap[parent]) {
+                    cleanChildrenMap[parent].push(path);
+                }
+            });
+            // 排序子節點，使路徑按字母順序排序
+            Object.keys(cleanChildrenMap).forEach(parent => {
+                cleanChildrenMap[parent].sort();
+            });
+
+            // 尋找根節點 (Parent 為 null 或不在 nodes 中)
+            const rootPaths = Object.keys(nodes).filter(path => !nodes[path].parent || !nodes[nodes[path].parent]);
+            rootPaths.sort();
 
             rootPaths.forEach(rootPath => {
-                const rootElem = buildTreeNode(rootPath, nodes);
+                const rootElem = buildTreeNode(rootPath, nodes, cleanChildrenMap);
                 container.appendChild(rootElem);
             });
         }
 
         // 遞迴建構子樹節點
-        function buildTreeNode(path, nodes) {
+        function buildTreeNode(path, nodes, cleanChildrenMap) {
             const node = nodes[path];
             if (!node) return document.createTextNode('');
 
@@ -528,7 +592,8 @@
             contentDiv.onclick = () => showDrawer(path, node);
 
             // 折疊按鈕 (如果包含子頁面)
-            const hasChildren = node.children && node.children.length > 0;
+            const childrenPaths = cleanChildrenMap[path] || [];
+            const hasChildren = childrenPaths.length > 0;
             if (hasChildren) {
                 const toggleBtn = document.createElement('button');
                 toggleBtn.className = 'toggle-btn';
@@ -560,7 +625,27 @@
             contentDiv.appendChild(pathSpan);
 
             // 顏色狀態標籤標註 (探索狀態)
-            if (node.dynamic_verified_at) {
+            const statusStr = String(node.status || "OK");
+            const isDead = node.error === true || (statusStr.includes("404") && statusStr !== "CATEGORY") || statusStr.includes("500") || (statusStr.includes("HTTP_") && statusStr !== "CATEGORY");
+            
+            if (isDead) {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-error';
+                badge.innerHTML = `❌ 異常 (${statusStr})`;
+                contentDiv.appendChild(badge);
+            } else if (statusStr === "CATEGORY") {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-category';
+                badge.style.background = '#4b5563';
+                badge.style.color = '#d1d5db';
+                badge.innerHTML = '📁 導覽目錄';
+                contentDiv.appendChild(badge);
+            } else if (node.verified_at && node.dynamic_verified_at) {
+                const badge = document.createElement('span');
+                badge.className = 'badge badge-full';
+                badge.innerHTML = '🌟 靜/動雙重校對';
+                contentDiv.appendChild(badge);
+            } else if (node.dynamic_verified_at) {
                 const badge = document.createElement('span');
                 badge.className = 'badge badge-dynamic';
                 badge.innerHTML = '🤖 已動態 AI 校對';
@@ -570,10 +655,10 @@
                 badge.className = 'badge badge-static';
                 badge.innerHTML = '✅ 已靜態校對';
                 contentDiv.appendChild(badge);
-            } else if (node.status && node.status.startsWith('HTTP_4')) {
+            } else if (node.initialized) {
                 const badge = document.createElement('span');
-                badge.className = 'badge badge-error';
-                badge.innerHTML = '⚠️ 死鏈 404';
+                badge.className = 'badge badge-initialized';
+                badge.innerHTML = '🔑 已認證存在';
                 contentDiv.appendChild(badge);
             } else {
                 const badge = document.createElement('span');
@@ -588,8 +673,8 @@
             if (hasChildren) {
                 const ul = document.createElement('ul');
                 ul.className = 'children-container';
-                node.children.forEach(childPath => {
-                    const childLi = buildTreeNode(childPath, nodes);
+                childrenPaths.forEach(childPath => {
+                    const childLi = buildTreeNode(childPath, nodes, cleanChildrenMap);
                     ul.appendChild(childLi);
                 });
                 li.appendChild(ul);
@@ -612,9 +697,14 @@
                 let matchesSearch = path.includes(query) || title.includes(query);
                 let matchesStatus = true;
 
-                if (filter === 'STATIC') matchesStatus = !!nodeData.verified_at;
-                if (filter === 'DYNAMIC') matchesStatus = !!nodeData.dynamic_verified_at;
-                if (filter === 'PENDING') matchesStatus = !nodeData.verified_at && !nodeData.dynamic_verified_at;
+                const statusStr = String(nodeData.status || "OK");
+                const isDead = nodeData.error === true || statusStr.includes("404") || statusStr.includes("500") || statusStr.includes("HTTP_");
+
+                if (filter === 'FULL') matchesStatus = !!nodeData.verified_at && !!nodeData.dynamic_verified_at && !isDead;
+                if (filter === 'STATIC') matchesStatus = !!nodeData.verified_at && !isDead;
+                if (filter === 'DYNAMIC') matchesStatus = !!nodeData.dynamic_verified_at && !isDead;
+                if (filter === 'PENDING') matchesStatus = !nodeData.verified_at && !nodeData.dynamic_verified_at && !isDead;
+                if (filter === 'ERROR') matchesStatus = isDead;
 
                 if (matchesSearch && matchesStatus) {
                     li.style.display = '';
@@ -629,8 +719,10 @@
             document.getElementById('drawerPath').innerText = path;
             document.getElementById('drawerTitle').innerText = node.title || '未命名頁面';
             document.getElementById('drawerType').innerText = node.is_leaf ? '📄 實體葉頁面 (Leaf Page)' : '📁 目錄與類別節點 (Category Node)';
+            document.getElementById('drawerInitializedTime').innerText = node.initialized_at || '未驗證';
             document.getElementById('drawerStaticTime').innerText = node.verified_at || '未校對';
             document.getElementById('drawerDynamicTime').innerText = node.dynamic_verified_at || '未校對';
+            document.getElementById('drawerStatus').innerText = node.status || 'OK';
             document.getElementById('drawerChildrenCount').innerText = node.children ? node.children.length : 0;
             
             document.getElementById('detailDrawer').classList.add('open');

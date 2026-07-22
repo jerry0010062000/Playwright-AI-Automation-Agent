@@ -50,6 +50,16 @@ class GeminiAgent:
         self.output_format = output_format or OUTPUT_FORMAT
         self.model = model or MODEL_NAME
     
+    def generate_quick_response(self, prompt: str) -> str:
+        """
+        快速生成一回合純文字回應 (不使用任何 Tool 或截圖)
+        """
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt
+        )
+        return response.text or ""
+    
     def create_initial_interaction(
         self, 
         task: str, 

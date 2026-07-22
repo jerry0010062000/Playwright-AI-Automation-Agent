@@ -77,6 +77,23 @@ class ClaudeAgent:
         self.model = model or "claude-3-5-sonnet-20241022"
         self.messages = []
         
+    def generate_quick_response(self, prompt: str) -> str:
+        """
+        快速生成一回合純文字回應 (不使用任何 Tool 或截圖)
+        """
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+        parts = [block.text for block in response.content if block.type == "text"]
+        return "".join(parts)
+        
     def create_initial_interaction(
         self, 
         task: str, 
