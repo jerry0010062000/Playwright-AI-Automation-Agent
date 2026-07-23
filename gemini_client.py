@@ -64,7 +64,8 @@ class GeminiAgent:
         self, 
         task: str, 
         screenshot_bytes: bytes,
-        extra_instructions: str = ""
+        extra_instructions: str = "",
+        skill: str = None
     ):
         """
         建立第一次 AI 互動
@@ -73,6 +74,7 @@ class GeminiAgent:
             task: 使用者任務描述
             screenshot_bytes: 初始頁面截圖（PNG 格式）
             extra_instructions: 額外的自訂指示
+            skill: 注入的核心技能名稱
         
         Returns:
             Gemini API 的互動回應物件
@@ -85,7 +87,8 @@ class GeminiAgent:
                 behavior=self.behavior,
                 output_format=self.output_format,
                 extra_instructions=extra_instructions,
-                include_situation_handlers=INCLUDE_SITUATION_HANDLERS
+                include_situation_handlers=INCLUDE_SITUATION_HANDLERS,
+                skill=skill
             )
         else:
             enhanced_task = build_simple_prompt(task, self.role)
@@ -114,10 +117,54 @@ class GeminiAgent:
         Returns:
             Gemini API 的互動回應物件
         """
+        from google.genai import types
+        
+        gemini_responses = []
+        for resp in function_responses:
+            call_id = resp.get("call_id")
+            name = resp.get("name")
+            result_blocks = resp.get("result", [])
+            
+            final_result = {}
+            screenshot_bytes = b""
+            
+            for block in result_blocks:
+                if block.get("type") == "text":
+                    try:
+                        final_result = json.loads(block.get("text", "{}"))
+                    except Exception:
+                        final_result = {"text": block.get("text", "")}
+                elif block.get("type") == "image":
+                    img_data = block.get("data")
+                    if isinstance(img_data, str):
+                        screenshot_bytes = base64.b64decode(img_data)
+                    elif isinstance(img_data, bytes):
+                        screenshot_bytes = img_data
+            
+            parts = []
+            if screenshot_bytes:
+                parts.append(
+                    types.FunctionResponsePart(
+                        inlineData=types.FunctionResponseBlob(
+                            mimeType="image/png",
+                            data=screenshot_bytes
+                        )
+                    )
+                )
+                
+            gemini_responses.append(
+                types.FunctionResponse(
+                    id=call_id,
+                    name=name,
+                    response=final_result,
+                    parts=parts
+                )
+            )
+            
         return self.client.interactions.create(
             model=self.model,  # 使用實例的模型設定
             previous_interaction_id=previous_interaction_id,
-            input=function_responses,
+            input=gemini_responses,
             tools=[self._get_computer_use_tool()]
         )
 

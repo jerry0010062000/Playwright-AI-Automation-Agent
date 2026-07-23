@@ -1,6 +1,9 @@
 {
     "base_path": "/",
     "total_pages": 10,
+    "target_url": "http://localhost:3000",
+    "default_username": "admin",
+    "default_password": "admin",
     "nodes": {
         "/": {
             "path": "/",

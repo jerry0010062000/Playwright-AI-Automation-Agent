@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import subprocess
 import threading
 import queue
@@ -199,6 +200,9 @@ class WCAGAgentGUI:
         
         # 啟動 Tkinter 定時排程檢查 Log 隊列
         self.root.after(100, self.poll_log_queue)
+        
+        # 根據預設選擇「請選擇任務」，初始化隱藏次要設定與開始按鈕禁用
+        self.root.after(100, self.on_main_task_selected)
 
     def setup_styles(self):
         """設定元件外觀樣式"""
@@ -316,7 +320,7 @@ class WCAGAgentGUI:
         
         tk.Label(left_content, text="檢測設定面板", bg=PANEL_BG, fg=HEADING_COLOR, font=("Segoe UI", 13, "bold")).pack(anchor=tk.W, pady=(0, 15))
 
-        # 0. 選擇專案網站地圖 (Sitemap - Prominently styled and placed at the very top)
+        # 0. 選擇專案網站地圖 (Sitemap - Core project map - placed at the very top)
         sitemap_frame = tk.LabelFrame(left_content, text=" Core Project Map (專案網站地圖) ", bg=PANEL_BG, fg=ACCENT_COLOR, 
                                       font=("Segoe UI", 10, "bold"), labelanchor="nw", relief="solid", bd=1)
         sitemap_frame.pack(fill=tk.X, pady=(0, 15), ipady=5, ipadx=5)
@@ -342,18 +346,57 @@ class WCAGAgentGUI:
                   activebackground=BTN_HOVER, activeforeground=TEXT_COLOR, 
                   font=("Segoe UI", 9), relief="flat", bd=0, command=self.refresh_sitemaps_list).pack(side=tk.LEFT, ipady=2, ipadx=8)
 
+        # 0.5 主要任務選單 (Main Task Selection)
+        tk.Label(left_content, text="主要任務類別 (Main Task):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10, "bold")).pack(anchor=tk.W, pady=(5, 3))
+        main_task_options = [
+            "請選擇任務 (Please select a task)",
+            "探索與初始化網站地圖 (Explore & Initialize Sitemap)",
+            "動態單頁無障礙檢測",
+            "靜態全站無障礙檢測"
+        ]
+        self.main_task_combo = ttk.Combobox(left_content, values=main_task_options, state="readonly", style="TCombobox")
+        self.main_task_combo.pack(fill=tk.X, pady=(0, 12))
+        self.main_task_combo.current(0)
+        self.main_task_combo.bind("<<ComboboxSelected>>", self.on_main_task_selected)
+
+        # 0.6. 主要任務說明卡片 (Main Task Help Card - Dynamic)
+        self.help_frame = tk.LabelFrame(left_content, text=" 💡 任務說明與 WCAG 規範定義 ", bg=PANEL_BG, fg="#858585",
+                                        font=("Segoe UI", 9, "bold"), labelanchor="nw", relief="solid", bd=1)
+        self.help_content_label = tk.Label(self.help_frame, text="", bg=PANEL_BG, fg=TEXT_COLOR,
+                                           font=("Segoe UI", 9), justify=tk.LEFT, anchor=tk.W, wraplength=320)
+        self.help_content_label.pack(fill=tk.BOTH, expand=True, padx=8, pady=5)
+
+        # 0.8 分隔線 (Divider - Separating core selectors from secondary configurations)
+        self.divider = ttk.Separator(left_content, orient='horizontal')
+        self.divider.pack(fill=tk.X, pady=(5, 15))
+
+        # 0.9 次要設定容器 (Secondary Configurations Container)
+        # 預設為「請選擇任務」，故初始狀態先不 pack，後續由選單切換決定是否顯示
+        self.secondary_container = tk.Frame(left_content, bg=PANEL_BG)
+
         # 1. 初始 URL 與自動登入帳密 (URL & Credentials - Priority directly below Sitemap)
-        tk.Label(left_content, text="檢測目標網址 (Initial URL):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10, "bold")).pack(anchor=tk.W, pady=(5, 3))
-        self.url_entry = tk.Entry(left_content, bg=BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, 
+        tk.Label(self.secondary_container, text="檢測目標網址 (Initial URL):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10, "bold")).pack(anchor=tk.W, pady=(5, 3))
+        self.url_entry = tk.Entry(self.secondary_container, bg=BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, 
                                   highlightthickness=1, highlightbackground=BORDER_COLOR, highlightcolor=ACCENT_COLOR, 
                                   font=("Segoe UI", 10), bd=0)
         self.url_entry.pack(fill=tk.X, pady=(0, 12), ipady=3)
         self.url_entry.insert(0, "http://localhost:8000")
 
-        auth_row = tk.Frame(left_content, bg=PANEL_BG)
-        auth_row.pack(fill=tk.X, pady=(0, 12))
+        # 1.5. 單頁路徑/網址容器 (Page Path Container - Dynamic)
+        self.page_container = tk.Frame(self.secondary_container, bg=PANEL_BG)
+        # 預設為靜態模式，先不 pack
+        self.page_label = tk.Label(self.page_container, text="單頁路徑 (Page Path):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10, "bold"))
+        self.page_label.pack(anchor=tk.W, pady=(5, 3))
+        self.page_entry = tk.Entry(self.page_container, bg=BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, 
+                                   highlightthickness=1, highlightbackground=BORDER_COLOR, highlightcolor=ACCENT_COLOR, 
+                                   font=("Segoe UI", 10), bd=0)
+        self.page_entry.pack(fill=tk.X, pady=(0, 12), ipady=3)
+        self.page_entry.insert(0, "")
+
+        self.auth_row = tk.Frame(self.secondary_container, bg=PANEL_BG)
+        self.auth_row.pack(fill=tk.X, pady=(0, 12))
         
-        auth_left = tk.Frame(auth_row, bg=PANEL_BG)
+        auth_left = tk.Frame(self.auth_row, bg=PANEL_BG)
         auth_left.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         tk.Label(auth_left, text="登入帳號 (Username):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(0, 2))
         self.username_entry = tk.Entry(auth_left, bg=BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR,
@@ -361,7 +404,7 @@ class WCAGAgentGUI:
                                        font=("Segoe UI", 10), bd=0)
         self.username_entry.pack(fill=tk.X, ipady=2)
         
-        auth_right = tk.Frame(auth_row, bg=PANEL_BG)
+        auth_right = tk.Frame(self.auth_row, bg=PANEL_BG)
         auth_right.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
         tk.Label(auth_right, text="登入密碼 (Password):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(0, 2))
         
@@ -391,31 +434,23 @@ class WCAGAgentGUI:
         self.username_entry.insert(0, getattr(config, "AUTO_LOGIN_USERNAME", ""))
         self.password_entry.insert(0, getattr(config, "AUTO_LOGIN_PASSWORD", ""))
 
-        # 2. 主要任務選單 (Main Task Selection)
-        tk.Label(left_content, text="主要任務類別 (Main Task):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10, "bold")).pack(anchor=tk.W, pady=(5, 3))
-        main_task_options = [
-            "靜態全量無障礙審查 (Static ALL - 0 Token 推薦)",
-            "動態全量無障礙審查 (Dynamic ALL - AI Vision & Focus)",
-            "獨立特定 WCAG 章節測試 (Specified Guideline)",
-            "探索與初始化網站地圖 (Explore & Initialize Sitemap)",
-            "自由模式"
-        ]
-        self.main_task_combo = ttk.Combobox(left_content, values=main_task_options, state="readonly", style="TCombobox")
-        self.main_task_combo.pack(fill=tk.X, pady=(0, 12))
-        self.main_task_combo.current(0)
-        self.main_task_combo.bind("<<ComboboxSelected>>", self.on_main_task_selected)
-
-        # 3. 任務描述大文字框 (Task Description)
-        tk.Label(left_content, text="任務描述 (Task Description):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(5, 3))
-        self.task_entry = tk.Text(left_content, height=4, width=30, bg=BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, 
+        # 3. 任務描述大文字框容器 (Task Description Container - Dynamic)
+        self.task_container = tk.Frame(self.secondary_container, bg=PANEL_BG)
+        # 預設為靜態模式，先不 pack
+        self.task_label = tk.Label(self.task_container, text="任務描述 (Task Description):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10))
+        self.task_label.pack(anchor=tk.W, pady=(5, 3))
+        self.task_entry = tk.Text(self.task_container, height=4, width=30, bg=BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, 
                                   highlightthickness=1, highlightbackground=BORDER_COLOR, highlightcolor=ACCENT_COLOR, 
                                   font=("Segoe UI", 10), bd=0)
         self.task_entry.pack(fill=tk.X, pady=(0, 12))
         self.task_entry.insert(tk.END, "我要求你對網頁進行自動化測試任務。")
 
-        # 4. WCAG 指南章節選擇
-        tk.Label(left_content, text="WCAG 2.2 檢測章節 (Guideline):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(5, 3))
-        wcag_options = [
+        # 4. WCAG 指南章節選擇容器 (WCAG Guidelines Container - Dynamic)
+        self.wcag_container = tk.Frame(self.secondary_container, bg=PANEL_BG)
+        # 預設為靜態模式，先不 pack
+        self.wcag_label = tk.Label(self.wcag_container, text="WCAG 2.2 檢測章節 (Guideline):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10))
+        self.wcag_label.pack(anchor=tk.W, pady=(5, 3))
+        self.full_wcag_options = [
             "None (不執行特定 WCAG 檢測)",
             "ALL (靜態全量 - 1.1, 1.3, 1.4, 3.1, 4.1 0-Token 推薦)",
             "DYNAMIC_ALL (動態全量 - 2.1, 2.2, 2.4, 2.5 視覺與焦點)",
@@ -433,18 +468,35 @@ class WCAGAgentGUI:
             "3.3 (靜態 - 輸入協助 3.3.1)",
             "4.1 (靜態 - 相容性與唯一 ID 4.1.2)"
         ]
-        self.wcag_combo = ttk.Combobox(left_content, values=wcag_options, state="readonly", style="TCombobox")
+        self.dynamic_wcag_options = [
+            "DYNAMIC_ALL (動態全量 - 2.1, 2.2, 2.4, 2.5 視覺與焦點)",
+            "2.1 (動態 - 鍵盤可達與無陷阱 2.1.1, 2.1.2, 2.1.4)",
+            "2.2 (動態 - 足夠時間 2.2.1)",
+            "2.3 (動態 - 預防閃爍 2.3.1)",
+            "2.4 (動態 - 導覽尋找與焦點可見 2.4.1, 2.4.2, 2.4.7)",
+            "2.5 (動態 - 輸入裝置 2.5.3)"
+        ]
+        self.static_wcag_options = [
+            "ALL (靜態全量 - 1.1, 1.3, 1.4, 3.1, 4.1 0-Token 推薦)",
+            "1.1 (靜態 - 替代文字 1.1.1)",
+            "1.2 (靜態 - 時基媒體 1.2.1, 1.2.2)",
+            "1.3 (靜態 - 易讀與 DOM 結構 1.3.1, 1.3.5)",
+            "1.4 (靜態 - 對比度與色彩 1.4.1, 1.4.3, 1.4.11)",
+            "3.1 (靜態 - 語言標籤 3.1.1)",
+            "3.2 (靜態 - 可預測性 3.2.1)",
+            "3.3 (靜態 - 輸入協助 3.3.1)",
+            "4.1 (靜態 - 相容性與唯一 ID 4.1.2)"
+        ]
+        self.wcag_combo = ttk.Combobox(self.wcag_container, values=self.full_wcag_options, state="readonly", style="TCombobox")
         self.wcag_combo.pack(fill=tk.X, pady=(0, 12))
         self.wcag_combo.current(0)  # 預設選 None
         self.wcag_combo.bind("<<ComboboxSelected>>", self.on_wcag_selected)
-
-
 
         # 地圖動態校對內部變數 (由主要任務選單控制)
         self.verify_sitemap_var = tk.BooleanVar(value=False)
 
         # 4. AI 模型選擇 (不同公司用不可選標籤隔開)
-        tk.Label(left_content, text="計費與決策 AI 模型 (Model):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(5, 3))
+        tk.Label(self.secondary_container, text="計費與決策 AI 模型 (Model):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(5, 3))
         model_options = [
             "--- Anthropic (Claude) ---",
             "claude-sonnet-4-5 (預設)",
@@ -455,7 +507,7 @@ class WCAGAgentGUI:
             "gemini-2.5-flash",
             "gemini-2.5-flash-lite"
         ]
-        self.model_combo = ttk.Combobox(left_content, values=model_options, state="readonly", style="TCombobox")
+        self.model_combo = ttk.Combobox(self.secondary_container, values=model_options, state="readonly", style="TCombobox")
         self.model_combo.pack(fill=tk.X, pady=(0, 5))
         self.model_combo.current(1)  # 預設指向 claude-sonnet-4-5 (預設)
         self.last_valid_model_index = 1
@@ -465,7 +517,7 @@ class WCAGAgentGUI:
         
         # 自定義模型切換 Checkbox (預設不選取以保持摺疊)
         self.use_custom_model_var = tk.BooleanVar(value=False)
-        self.custom_model_cb = tk.Checkbutton(left_content, text="使用自定義模型名稱 (進階)", 
+        self.custom_model_cb = tk.Checkbutton(self.secondary_container, text="使用自定義模型名稱 (進階)", 
                                               variable=self.use_custom_model_var, command=self.toggle_custom_model,
                                               bg=PANEL_BG, fg="#858585", selectcolor=BG_COLOR,
                                               activebackground=PANEL_BG, activeforeground="#858585",
@@ -473,7 +525,7 @@ class WCAGAgentGUI:
         self.custom_model_cb.pack(anchor=tk.W, pady=(0, 10))
         
         # 自定義模型輸入框容器 (預設不 pack，即摺疊)
-        self.custom_model_frame = tk.Frame(left_content, bg=PANEL_BG)
+        self.custom_model_frame = tk.Frame(self.secondary_container, bg=PANEL_BG)
         
         tk.Label(self.custom_model_frame, text="自定義模型名稱 (Custom Model):", bg=PANEL_BG, fg=TEXT_COLOR, 
                  font=("Segoe UI", 10, "italic")).pack(anchor=tk.W, pady=(0, 3))
@@ -485,14 +537,14 @@ class WCAGAgentGUI:
         self.custom_model_entry.insert(0, "claude-3-5-sonnet-20241022")
 
         # 5. 模擬裝置型態
-        tk.Label(left_content, text="瀏覽器視窗模擬 (Device Viewport):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(5, 3))
+        tk.Label(self.secondary_container, text="瀏覽器視窗模擬 (Device Viewport):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(5, 3))
         device_options = ["desktop", "mobile", "tablet"]
-        self.device_combo = ttk.Combobox(left_content, values=device_options, state="readonly", style="TCombobox")
+        self.device_combo = ttk.Combobox(self.secondary_container, values=device_options, state="readonly", style="TCombobox")
         self.device_combo.pack(fill=tk.X, pady=(0, 12))
         self.device_combo.current(0)
 
         # 6. 最大回合數與數值控制
-        row_settings = tk.Frame(left_content, bg=PANEL_BG)
+        row_settings = tk.Frame(self.secondary_container, bg=PANEL_BG)
         row_settings.pack(fill=tk.X, pady=(5, 12))
         
         tk.Label(row_settings, text="最大回合 (Max Turns):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10)).pack(side=tk.LEFT)
@@ -507,7 +559,7 @@ class WCAGAgentGUI:
         self.headless_var = tk.BooleanVar(value=False)  # 預設顯示瀏覽器，方便使用者看畫面
         self.record_var = tk.BooleanVar(value=True)    # 預設儲存記錄與產生報告
         
-        cb_frame = tk.Frame(left_content, bg=PANEL_BG)
+        cb_frame = tk.Frame(self.secondary_container, bg=PANEL_BG)
         cb_frame.pack(fill=tk.X, pady=10)
         
         tk.Checkbutton(cb_frame, text="無頭模式 (Headless)", variable=self.headless_var,
@@ -614,6 +666,7 @@ class WCAGAgentGUI:
                                          activebackground=ACCENT_COLOR, activeforeground=HEADING_COLOR, bd=1, relief="solid")
         self.tree_context_menu.add_command(label="複製相對路徑 (Copy Path)", command=self.copy_tree_relative_path)
         self.tree_context_menu.add_command(label="複製完整網址 (Copy Full URL)", command=self.copy_tree_full_url)
+        self.tree_context_menu.add_command(label="快速插入至 Page 欄位", command=self.quick_insert_page)
         self.tree_context_menu.add_command(label="開啟無障礙單頁報告 (Open Report)", command=self.open_selected_page_report)
 
         # --- 頁籤 2: 原生 Sitemap 樹狀地圖視覺化系統 ---
@@ -696,6 +749,9 @@ class WCAGAgentGUI:
         self.show_welcome_banner()
         self.root.after(500, self.refresh_sitemap_tree)
         self.root.after(3000, self.auto_refresh_tree_loop)
+        
+        # 初始化時預設選擇網站地圖可視化頁籤 (tab 1)
+        self.notebook.select(1)
 
     def get_welcome_banner(self):
         """傳回 3D 專案縮寫 PW-AI ASCII 歡迎橫幅"""
@@ -1128,25 +1184,7 @@ class WCAGAgentGUI:
         except Exception as e:
             messagebox.showerror("錯誤", f"刪除失敗：{str(e)}")
 
-    def on_main_task_selected(self, event=None):
-        """當主要任務選單切換時，動態填入推薦的任務描述與聯動組件標籤"""
-        task_sel = self.main_task_combo.get()
-        if "探索" in task_sel or "Explore" in task_sel or "Initialize" in task_sel:
-            self.task_entry.delete("1.0", tk.END)
-            self.task_entry.insert(tk.END, "探索與初始化網站地圖：自動發現所有頁面、校對狀態碼與標題。")
-            self.wcag_combo.current(0)
-            self.verify_sitemap_var.set(True)
-        elif "WCAG" in task_sel:
-            self.task_entry.delete("1.0", tk.END)
-            self.task_entry.insert(tk.END, "對網頁進行 WCAG 規範自動化無障礙檢測與審查。")
-            if self.wcag_combo.get().startswith("None"):
-                self.wcag_combo.current(1)
-            self.verify_sitemap_var.set(False)
-        else:  # None (預設/自訂)
-            self.task_entry.delete("1.0", tk.END)
-            self.task_entry.insert(tk.END, "我要求你對網頁進行自動化測試任務。")
-            self.wcag_combo.current(0)
-            self.verify_sitemap_var.set(False)
+
 
     # ==========================================
     # 唯讀 Text 複製與選取輔助函數
@@ -1370,6 +1408,105 @@ class WCAGAgentGUI:
         finally:
             self.root.after(3000, self.auto_refresh_tree_loop)
 
+    def update_start_button_state(self):
+        """根據主要任務選單與網站地圖選單的狀態，啟用/禁用開始按鈕"""
+        task_sel = self.main_task_combo.get()
+        sitemap_sel = self.sitemap_combo.get()
+        
+        has_valid_task = not task_sel.startswith("請選擇")
+        has_valid_sitemap = sitemap_sel and not sitemap_sel.startswith("None")
+        
+        if has_valid_task and has_valid_sitemap:
+            self.start_btn.config(state=tk.NORMAL)
+        else:
+            self.start_btn.config(state=tk.DISABLED)
+
+    def on_sitemap_selected(self, event=None):
+        """當地圖檔案被選取時，自動讀取並載入其 target_url、帳密配置等"""
+        map_name = self.sitemap_combo.get().strip()
+        self.refresh_sitemap_tree()
+        
+        if map_name.startswith("None"):
+            self.update_start_button_state()
+            return
+            
+        map_path = os.path.join("sitemaps", map_name)
+        if os.path.exists(map_path):
+            try:
+                with open(map_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                
+                # 1. 自動更新 URL 欄位
+                target_url = data.get("target_url")
+                if target_url:
+                    self.url_entry.delete(0, tk.END)
+                    self.url_entry.insert(0, target_url)
+                    
+                # 2. 自動更新帳密欄位
+                default_user = data.get("default_username")
+                default_pass = data.get("default_password")
+                if default_user is not None:
+                    self.username_entry.delete(0, tk.END)
+                    self.username_entry.insert(0, default_user)
+                if default_pass is not None:
+                    self.password_entry.delete(0, tk.END)
+                    self.password_entry.insert(0, default_pass)
+                
+                # 3. 主要任務選單與聯動
+                main_task = data.get("main_task")
+                if main_task and main_task in self.main_task_combo["values"]:
+                    self.main_task_combo.set(main_task)
+                    self.on_main_task_selected()
+                    
+                # 4. 單頁路徑
+                page_path = data.get("page_path")
+                if page_path is not None:
+                    self.page_entry.delete(0, tk.END)
+                    self.page_entry.insert(0, page_path)
+                    
+                # 5. WCAG 下拉選單 (如果是特製的則覆蓋)
+                wcag_sel = data.get("wcag_sel")
+                if wcag_sel and wcag_sel in self.wcag_combo["values"]:
+                    self.wcag_combo.set(wcag_sel)
+                    
+                # 6. AI 模型設定
+                use_custom_model = data.get("use_custom_model")
+                if use_custom_model is not None:
+                    self.use_custom_model_var.set(use_custom_model)
+                    self.toggle_custom_model()
+                
+                custom_model = data.get("custom_model")
+                if custom_model:
+                    self.custom_model_entry.delete(0, tk.END)
+                    self.custom_model_entry.insert(0, custom_model)
+                    
+                model = data.get("model")
+                if model and model in self.model_combo["values"]:
+                    self.model_combo.set(model)
+                    
+                # 7. 裝置、回合與無頭/記錄
+                device = data.get("device")
+                if device and device in self.device_combo["values"]:
+                    self.device_combo.set(device)
+                    
+                max_turns = data.get("max_turns")
+                if max_turns is not None:
+                    self.turns_spin.delete(0, "end")
+                    self.turns_spin.insert(0, str(max_turns))
+                    
+                headless = data.get("headless")
+                if headless is not None:
+                    self.headless_var.set(headless)
+                    
+                record = data.get("record")
+                if record is not None:
+                    self.record_var.set(record)
+                
+                self.append_log(f"\n[GUI] 🗺️ 地圖 [{map_name}] 讀取成功，已自動載入上次配置的任務設定項目！")
+            except Exception as e:
+                self.append_log(f"\n[GUI] ⚠️ 讀取地圖設定時發生錯誤: {e}")
+        self.update_start_button_state()
+
     def open_selected_page_report(self, event=None):
         """開啟樹狀圖中選取頁面的無障礙單頁報告文檔"""
         item_id = self.tree_view.focus() if hasattr(self, "tree_view") else None
@@ -1442,6 +1579,30 @@ class WCAGAgentGUI:
         self.root.clipboard_append(full_url)
         self.append_log(f"\n[GUI] 📋 已複製完整網址到剪貼簿: {full_url}")
 
+    def quick_insert_page(self):
+        """地圖右鍵快速插入至 Page 欄位"""
+        selected = self.tree_view.selection()
+        if not selected:
+            self.append_log("\n[GUI WARNING] 未選取任何地圖節點，無法插入。")
+            return
+        rel_path = selected[0]
+        
+        sel = self.main_task_combo.get()
+        if "動態單頁" not in sel:
+            messagebox.showinfo("提示", "請先切換主要任務至『動態單頁無障礙檢測』以啟用單頁路徑欄位！")
+            return
+            
+        orig_state = self.page_entry.cget("state")
+        try:
+            self.page_entry.config(state=tk.NORMAL)
+            self.page_entry.delete(0, tk.END)
+            self.page_entry.insert(0, rel_path)
+            self.append_log(f"\n[GUI] ⚡ 已自動插入相對路徑至 Page Path: {rel_path}")
+        except Exception as e:
+            self.append_log(f"\n[GUI ERROR] 快速插入失敗: {e}")
+        finally:
+            self.page_entry.config(state=orig_state)
+
     # ==========================================
     # 控制邏輯與執行緒管理
     # ==========================================
@@ -1487,41 +1648,7 @@ class WCAGAgentGUI:
         else:
             messagebox.showerror("錯誤", "找不到 sitemap_visualizer.html 檔案！")
 
-    def on_sitemap_selected(self, event=None):
-        """當選擇不同網站地圖時，自動解析並填入綁定的目標網址與測試憑證，並更新樹狀圖"""
-        import json
-        map_name = self.sitemap_combo.get().strip()
-        self.refresh_sitemap_tree()
-        
-        if map_name.startswith("None"):
-            return
-            
-        map_path = os.path.join("sitemaps", map_name)
-        if os.path.exists(map_path):
-            try:
-                with open(map_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                
-                # 自動更新 URL 欄位
-                target_url = data.get("target_url")
-                if target_url:
-                    self.url_entry.delete(0, tk.END)
-                    self.url_entry.insert(0, target_url)
-                    self.append_log(f"\n[GUI] 🗺️ 地圖自動綁定 URL: {target_url}")
-                    
-                # 自動更新帳密欄位
-                default_user = data.get("default_username")
-                default_pass = data.get("default_password")
-                if default_user is not None:
-                    self.username_entry.delete(0, tk.END)
-                    self.username_entry.insert(0, default_user)
-                if default_pass is not None:
-                    self.password_entry.delete(0, tk.END)
-                    self.password_entry.insert(0, default_pass)
-                if default_user or default_pass:
-                    self.append_log(f"[GUI] 🗺️ 地圖自動帶入預設登入憑證！")
-            except Exception as e:
-                pass
+
 
     def on_wcag_selected(self, event=None):
         """當 WCAG 章節下拉選單切換時，自動更新 AI 模型選單啟用狀態"""
@@ -1533,7 +1660,7 @@ class WCAGAgentGUI:
         main_task = self.main_task_combo.get()
         
         # 判定是否為靜態 0-Token 任務
-        is_static = ("靜態全量" in main_task) or (wcag_sel == "ALL") or (wcag_sel in ["1.1", "1.2", "1.3", "1.4", "3.1", "3.2", "3.3", "4.1"])
+        is_static = ("靜態全站" in main_task) or (wcag_sel == "ALL") or (wcag_sel in ["1.1", "1.2", "1.3", "1.4", "3.1", "3.2", "3.3", "4.1"])
         
         # 重要：即使是靜態 WCAG 任務，仍需要 AI 模型進行登入操作
         # 因此不再禁用模型選擇器，讓用戶自由選擇
@@ -1548,48 +1675,160 @@ class WCAGAgentGUI:
             else:
                 self.model_combo.current(1)
 
+    def update_layout_visibility(self):
+        """根據目前主要任務類別，動態調整左側面板欄位可見度"""
+        if not hasattr(self, "secondary_container"):
+            return
+            
+        sel = self.main_task_combo.get()
+        
+        # 1. 如果是「請選擇任務」，隱藏所有次要設定與說明卡片
+        if sel.startswith("請選擇"):
+            self.secondary_container.pack_forget()
+            self.help_frame.pack_forget()
+            self.update_start_button_state()
+            return
+            
+        # 否則，顯示說明卡片與次要設定，並動態更新開始按鈕啟用狀態
+        self.help_frame.pack(fill=tk.X, pady=(0, 15), after=self.main_task_combo)
+        self.secondary_container.pack(fill=tk.BOTH, expand=True, after=self.divider)
+        self.update_start_button_state()
+        
+        show_page = "動態單頁" in sel
+        show_task = "靜態全站" not in sel
+        show_wcag = "靜態全站" not in sel and "探索" not in sel
+        
+        # 2. 先全部 pack_forget
+        self.page_container.pack_forget()
+        self.task_container.pack_forget()
+        self.wcag_container.pack_forget()
+        
+        # 3. 按順序重新 pack
+        # page_container 應該在 url_entry 之後
+        if show_page:
+            self.page_container.pack(fill=tk.X, after=self.url_entry)
+            
+        # task_container 應該在 auth_row 之後
+        if show_task:
+            self.task_container.pack(fill=tk.X, after=self.auth_row)
+            
+        # wcag_container 應該在 task_container 之後 (若顯示)，否則在 auth_row 之後
+        if show_wcag:
+            anchor_widget = self.task_container if show_task else self.auth_row
+            self.wcag_container.pack(fill=tk.X, after=anchor_widget)
+
     def on_main_task_selected(self, event=None):
         """主任務選單切換事件處置"""
         sel = self.main_task_combo.get()
-        if "靜態全量" in sel or "Static ALL" in sel:
-            idx = 1
-            for i, opt in enumerate(self.wcag_combo["values"]):
+        
+        if sel.startswith("請選擇"):
+            self.update_layout_visibility()
+            return
+            
+        if "靜態全站" in sel:
+            self.wcag_combo["values"] = self.static_wcag_options
+            idx = 0
+            for i, opt in enumerate(self.static_wcag_options):
                 if opt.startswith("ALL"):
                     idx = i
                     break
             self.wcag_combo.current(idx)
+            self.wcag_combo.config(state="disabled")
             self.task_entry.delete("1.0", tk.END)
             self.task_entry.insert(tk.END, "執行全站靜態 WCAG 1.1~4.1 全量無障礙審查 (0-Token 高速模式)")
-        elif "動態全量" in sel or "Dynamic ALL" in sel:
-            idx = 2
-            for i, opt in enumerate(self.wcag_combo["values"]):
+            
+            help_text = (
+                "【任務定義】\n"
+                "透過網站地圖（Sitemap）全量遍歷所有網頁，並調用 Axe-core 本地無障礙審查引擎，對 HTML DOM 結構、靜態屬性、標記進行高速無障礙檢測。\n\n"
+                "【所含 WCAG 章節】\n"
+                "靜態全量（WCAG 1.1~4.1）\n"
+                "• 1.1 非文字內容替代文字 (Text Alternatives)\n"
+                "• 1.3 資訊與關聯性 (Info and Relationships)\n"
+                "• 1.4 對比度與色彩 (Contrast & Colour)\n"
+                "• 3.1 可讀性與語言標籤 (Language of Page)\n"
+                "• 4.1 相容性與唯一 ID (HTML DOM Validity)"
+            )
+            self.help_content_label.config(text=help_text)
+            
+        elif "動態單頁" in sel:
+            self.wcag_combo["values"] = self.dynamic_wcag_options
+            idx = 0
+            for i, opt in enumerate(self.dynamic_wcag_options):
                 if opt.startswith("DYNAMIC_ALL"):
                     idx = i
                     break
             self.wcag_combo.current(idx)
+            self.wcag_combo.config(state="readonly")
             self.task_entry.delete("1.0", tk.END)
             self.task_entry.insert(tk.END, "執行全站動態 WCAG 2.1/2.2/2.4/2.5 鍵盤焦點與 AI 視覺無障礙審查")
-        elif "獨立特定" in sel or "Specified" in sel:
-            self.task_entry.delete("1.0", tk.END)
-            self.task_entry.insert(tk.END, "針對選定的單一特定 WCAG 章節細項進行深層無障礙審查")
-            if self.wcag_combo.get().startswith("None") or "ALL" in self.wcag_combo.get():
-                self.wcag_combo.current(3) # 預設選取 1.1 替代文字
-        elif "探索" in sel or "Explore" in sel or "Initialize" in sel:
-            self.task_entry.delete("1.0", tk.END)
-            self.task_entry.insert(tk.END, "探索與初始化網站地圖：自動發現頁面、校對狀態")
-        else: # 自由模式 (自訂探索測試任務)
-            self.task_entry.delete("1.0", tk.END)
-            self.task_entry.insert(tk.END, "我要求你對網頁進行自動化測試任務。")
-            self.wcag_combo.current(0)
             
-        # 控制 WCAG 下拉選單啟用狀態 (防呆策略：地圖探索任務強制設為 None 且不可選)
-        if "探索" in sel or "Explore" in sel or "Initialize" in sel:
+            help_text = (
+                "【任務定義】\n"
+                "對指定的單一頁面進行深入的動態互動性檢測。運用 AI 視覺模擬與模擬鍵盤焦點移動，分析複雜互動組件（如彈窗、下拉選單、選單切換等）的可用性與無障礙程度。\n\n"
+                "【所含 WCAG 章節】\n"
+                "動態全量（WCAG 2.1/2.2/2.4/2.5）\n"
+                "• 2.1 鍵盤可達性（Keyboard Accessible）\n"
+                "• 2.2 足夠時間（Enough Time）\n"
+                "• 2.4 可導覽性與焦點可見（Navigable & Focus Visible）\n"
+                "• 2.5 輸入協助與標籤（Input Modalities）"
+            )
+            self.help_content_label.config(text=help_text)
+            
+        elif "探索" in sel:
+            self.wcag_combo["values"] = self.full_wcag_options
             self.wcag_combo.current(0)
             self.wcag_combo.config(state="disabled")
-        else:
-            self.wcag_combo.config(state="readonly")
+            self.task_entry.delete("1.0", tk.END)
+            self.task_entry.insert(tk.END, "探索與初始化網站地圖：自動發現頁面、校對狀態")
+            
+            help_text = (
+                "【任務定義】\n"
+                "自動化探索目標網站，遍歷並爬取所有頁面的網址、網頁標題與 HTTP 狀態碼，藉此建立專案網站地圖 JSON。\n\n"
+                "【所含 WCAG 章節】\n"
+                "本任務為結構探索與校對階段，不包含 WCAG 規範評估。"
+            )
+            self.help_content_label.config(text=help_text)
             
         self.update_model_combo_state()
+        self.update_layout_visibility()
+
+    def save_sitemap_config(self, sitemap_path):
+        """當按下開始後，為選定的專案網站地圖存檔其配置參數"""
+        if not sitemap_path or not os.path.exists(sitemap_path):
+            return
+            
+        try:
+            with open(sitemap_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                
+            # 寫入目前 UI 設定值到 JSON 頂層欄位
+            data["target_url"] = self.url_entry.get().strip()
+            data["default_username"] = self.username_entry.get().strip()
+            data["default_password"] = self.password_entry.get().strip()
+            data["main_task"] = self.main_task_combo.get()
+            data["page_path"] = self.page_entry.get().strip()
+            data["wcag_sel"] = self.wcag_combo.get()
+            
+            # AI 模型
+            data["use_custom_model"] = self.use_custom_model_var.get()
+            data["custom_model"] = self.custom_model_entry.get().strip()
+            data["model"] = self.model_combo.get()
+            
+            # 其他次要設定
+            data["device"] = self.device_combo.get()
+            try:
+                data["max_turns"] = int(self.turns_spin.get())
+            except ValueError:
+                data["max_turns"] = 30
+            data["headless"] = self.headless_var.get()
+            data["record"] = self.record_var.get()
+            
+            with open(sitemap_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                
+            self.append_log(f"[GUI] 💾 已為地圖 [{os.path.basename(sitemap_path)}] 存檔目前所有設定項目！\n")
+        except Exception as e:
+            self.append_log(f"[GUI] ⚠️ 儲存地圖設定時發生錯誤: {e}\n")
 
     def start_audit(self):
         """啟動檢測，並防重複點選"""
@@ -1602,6 +1841,12 @@ class WCAGAgentGUI:
         if not url:
             messagebox.showwarning("警告", "請輸入目標網址！")
             return
+
+        # 檢查是否選擇了地圖檔案
+        sitemap_sel = self.sitemap_combo.get()
+        if not sitemap_sel or sitemap_sel.startswith("None") or sitemap_sel.strip() == "":
+            messagebox.showwarning("警告", "請先選擇或新增專案網站地圖！")
+            return
         
         # 解析主要任務與選單 (Main Task Selection)
         main_task_sel = self.main_task_combo.get()
@@ -1609,25 +1854,34 @@ class WCAGAgentGUI:
         wcag_val = None
         verify_sitemap = False
         
-        if "靜態全量" in main_task_sel:
+        if "靜態全站" in main_task_sel:
             wcag_val = "ALL"
-        elif "動態全量" in main_task_sel:
-            wcag_val = "DYNAMIC_ALL"
-        elif "獨立特定" in main_task_sel:
-            if "None" not in wcag_sel:
-                wcag_val = wcag_sel.split(" ")[0].strip()
+        elif "動態單頁" in main_task_sel:
+            # 支援設置小節，從 wcag_combo 中取出前綴 (例如 DYNAMIC_ALL, 2.1 等)
+            wcag_sel_prefix = wcag_sel.split(" ")[0].strip()
+            if wcag_sel_prefix and not wcag_sel_prefix.startswith("None"):
+                wcag_val = wcag_sel_prefix
+            else:
+                wcag_val = "DYNAMIC_ALL"
         elif "探索" in main_task_sel or "Explore" in main_task_sel or "Initialize" in main_task_sel:
             verify_sitemap = True
             if not task:
                 task = "探索與初始化網站地圖"
-        else:
-            if "None" not in wcag_sel:
-                wcag_val = wcag_sel.split(" ")[0].strip()
-            
+
+        # 解析單頁路徑與網址組合 (如果是動態單頁無障礙檢測)
+        is_page_unit = "動態單頁" in main_task_sel
+        if is_page_unit:
+            page_path = self.page_entry.get().strip()
+            if page_path:
+                import urllib.parse
+                url = urllib.parse.urljoin(url, page_path)
+
         # 解析 Sitemap 選項
         sitemap_sel = self.sitemap_combo.get()
         use_sitemap = False
         sitemap_file = None
+        
+        # 不論是全站還是單頁，只要選取了有效的地圖，就代入 sitemap_file 參數供報告記錄
         if sitemap_sel and not sitemap_sel.startswith("None"):
             use_sitemap = True
             sitemap_file = os.path.join("sitemaps", sitemap_sel)
@@ -1641,6 +1895,11 @@ class WCAGAgentGUI:
                     sitemap_sel = files[0]
                     use_sitemap = True
                     sitemap_file = os.path.join("sitemaps", sitemap_sel)
+
+        # 若為靜態全站巡檢，必須選擇 Sitemap 地圖檔以供全量遍歷
+        if "靜態全站" in main_task_sel and not sitemap_file:
+            messagebox.showwarning("警告", "『靜態全站無障礙檢測』為全站掃描，請先選擇或新增專案網站地圖！")
+            return
 
         # 解析 Model
         if self.use_custom_model_var.get():
@@ -1679,6 +1938,9 @@ class WCAGAgentGUI:
         self.stop_btn.config(state=tk.NORMAL)
         self.toggle_widgets_state(False)
         
+        # 開始後自動切換至「實時 CMD 終端」頁籤 (tab 0)
+        self.notebook.select(0)
+        
         # 啟動載入動畫並更新顏色
         self.loader_label.config(fg=ACCENT_COLOR)
         self.spinner.start()
@@ -1702,15 +1964,24 @@ class WCAGAgentGUI:
         self.append_log(f"  - 儲存記錄: {record}\n")
         self.append_log(f"{'='*60}\n\n")
 
+        # 決定要存檔設定的地圖路徑
+        current_sitemap_name = self.sitemap_combo.get().strip()
+        save_sitemap_path = None
+        if current_sitemap_name and not current_sitemap_name.startswith("None"):
+            save_sitemap_path = os.path.join("sitemaps", current_sitemap_name)
+            
+        if save_sitemap_path:
+            self.save_sitemap_config(save_sitemap_path)
+
         # 啟動背景執行緒跑 Python 程序
         thread = threading.Thread(
             target=self.run_subprocess_worker, 
-            args=(task, url, wcag_val, model_val, device_val, turns_val, headless, record, sitemap_file, verify_sitemap, username_val, password_val)
+            args=(task, url, wcag_val, model_val, device_val, turns_val, headless, record, sitemap_file, verify_sitemap, username_val, password_val, is_page_unit)
         )
         thread.daemon = True
         thread.start()
 
-    def run_subprocess_worker(self, task, url, wcag, model, device, max_turns, headless, record, sitemap_file=None, verify_sitemap=False, username=None, password=None):
+    def run_subprocess_worker(self, task, url, wcag, model, device, max_turns, headless, record, sitemap_file=None, verify_sitemap=False, username=None, password=None, single_page=False):
         """背景執行緒：呼叫 subprocess 執行 agent.py"""
         # 尋找虛擬環境中的 python 執行檔，優先使用 venv
         venv_python = os.path.join(os.getcwd(), ".venv", "Scripts", "python.exe")
@@ -1741,6 +2012,8 @@ class WCAGAgentGUI:
             cmd.append("--verify-sitemap")
         if sitemap_file:
             cmd.extend(["--sitemap", sitemap_file])
+        if single_page:
+            cmd.append("--single-page")
         if username:
             cmd.extend(["--username", username])
         if password:
@@ -1824,18 +2097,24 @@ class WCAGAgentGUI:
         self.main_task_combo.config(state=combo_state)
         self.task_entry.config(state=text_state)
         self.url_entry.config(state=tk_state)
+        self.page_entry.config(state=tk_state)
         self.username_entry.config(state=tk_state)
         self.password_entry.config(state=tk_state)
         self.eye_btn.config(state=tk_state)
         
-        # wcag_combo & sitemap_combo
-        self.wcag_combo.config(state=combo_state)
+        # sitemap_combo
         self.sitemap_combo.config(state=combo_state)
         
-        # model_combo (只有非靜態任務且啟用狀態下才恢復成 readonly)
+        # wcag_combo
         if state:
+            sel = self.main_task_combo.get()
+            if "靜態全站" in sel or "探索" in sel or sel.startswith("請選擇"):
+                self.wcag_combo.config(state="disabled")
+            else:
+                self.wcag_combo.config(state="readonly")
             self.update_model_combo_state()
         else:
+            self.wcag_combo.config(state="disabled")
             self.model_combo.config(state="disabled")
             
         self.custom_model_cb.config(state=tk_state)

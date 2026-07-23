@@ -33,6 +33,9 @@ import os
 import datetime
 import json
 import re
+import time
+import urllib.parse
+from urllib.parse import urlparse, urljoin
 from playwright.sync_api import sync_playwright
 
 # 解決 Windows 主控台編碼問題，確保能正確輸出 UTF-8 字元
@@ -249,16 +252,19 @@ def parse_arguments():
                        help='顯示當前所有配置並退出（不執行任務）')
     
     parser.add_argument('--wcag', type=str, default=None,
-                       help='指定要載入的 WCAG 2.2 章節規則（例如：1.1, 1.3, 2.1）。指定後系統會自動將該章節的無障礙規則加入任務提示詞中，節省 Token 並提高專注度。')
+                       help='指定 WCAG 規範版本（如 2.1, 2.2 或 2.0），啟用無障礙專家提示與報告系統')
     
     parser.add_argument('--record', action='store_true', default=False,
-                       help='啟用執行過程的記錄（儲存截圖、Markdown 報告與運行日誌至 records 目錄）。預設不儲存。')
+                       help='啟用詳細日誌記錄與報告產出。記錄將儲存於 records/ 目錄中')
     
     parser.add_argument('--sitemap', type=str, default=None,
-                       help='指定網站地圖路徑（JSON 格式網址清單）。若不存在將自動創建最小地圖並開始探索。')
-                       
+                       help='指定 Site Map JSON 檔案路徑。若指定，程式將進入「系統導航 (Feeder)」模式，自動化依序審查地圖中的受控頁面。若標記為 verify 則自動探索。')
+    
     parser.add_argument('--verify-sitemap', action='store_true', default=False,
                        help='啟動地圖探索與校對引擎：自動發現新頁面、校對狀態碼、標題，並同步更新 JSON 地圖檔案。若地圖不存在會自動創建。')
+    
+    parser.add_argument('--single-page', action='store_true', default=False,
+                       help='強制單網頁審查模式，即便指定了 sitemap 檔也僅掃描初始網址，用以支援地圖記錄存檔與單頁報告生成。')
     
     parser.add_argument('--username', type=str, default=None,
                        help='自訂登入帳號，覆蓋 config.py 中的預設值')
@@ -663,6 +669,7 @@ def perform_ai_login_phase(page, model_name, username, password):
         login_input_tokens += init_tokens["input"]
         login_output_tokens += init_tokens["output"]
         login_total_tokens += init_tokens["total"]
+        print(f"[AI LOGIN] Initial Tokens - In: {init_tokens['input']}, Out: {init_tokens['output']}")
         
         max_login_turns = MAX_LOGIN_TURNS
         for turn in range(max_login_turns):
@@ -686,6 +693,7 @@ def perform_ai_login_phase(page, model_name, username, password):
             login_input_tokens += turn_tokens["input"]
             login_output_tokens += turn_tokens["output"]
             login_total_tokens += turn_tokens["total"]
+            print(f"[AI LOGIN] [回合 {turn + 1}] Turn Tokens - In: {turn_tokens['input']}, Out: {turn_tokens['output']}")
             
         # 二次驗證：等待並確認是否成功跳轉/登入（密碼輸入框是否消失）
         print("[AI LOGIN] 正在等待登入跳轉並驗證狀態...")
@@ -1858,134 +1866,6 @@ def main():
     total_tokens = total_input_tokens + total_output_tokens
 
     try:
-        # 前往初始頁面
-        print(f"[>>] Navigating to: {args.url}")
-        page.goto(args.url)
-        try:
-            page.focus("body")
-        except Exception:
-            pass
-
-        # 若配置了自動登入資訊，且當前不在 wcag 流程中，在此自訂任務流程中也進行 AI 預先登入
-        from config import AUTO_LOGIN_USERNAME, AUTO_LOGIN_PASSWORD
-        login_user = args.username if args.username is not None else AUTO_LOGIN_USERNAME
-        login_pass = args.password if args.password is not None else AUTO_LOGIN_PASSWORD
-        if login_user or login_pass:
-            login_toks = perform_ai_login_phase(page, args.model, login_user, login_pass)
-            global_total_input_tokens += login_toks["input"]
-            global_total_output_tokens += login_toks["output"]
-            if login_toks.get("success") is False:
-                print("\n[AI LOGIN] ❌ AI 預先登入失敗！認證未通過，終止後續動態任務。\n")
-                if record_dir:
-                    report_path = os.path.join(record_dir, "report.md")
-                    with open(report_path, "w", encoding="utf-8") as rf:
-                        rf.write("# ❌ 任務失敗與終止報告\n\nAI 預先登入認證失敗，無法獲取進入後台授權，任務已自動提前終止。\n")
-                return
-
-        # 進行本地靜態預檢，節省 AI 算力（能省則省原則）
-        if args.wcag == "1.2":
-            print("[*] 偵測到時基媒體審查任務，啟動本地全站非同步預檢以節省 AI 算力...")
-            scan_script = """
-            (async () => {
-                const urls = [...new Set(Array.from(document.querySelectorAll('a[href]')).map(a => a.href).filter(href => href.startsWith(location.origin)))];
-                if (!urls.includes(location.href)) urls.push(location.href);
-                const res = {};
-                let totalMedia = 0;
-                for (const u of urls) {
-                    try {
-                        const text = await (await fetch(u)).text();
-                        const hasMedia = /<video|<audio|<iframe|<embed|<object/i.test(text);
-                        res[u] = hasMedia;
-                        if (hasMedia) totalMedia++;
-                    } catch(e) { res[u] = 'error'; }
-                }
-                return { results: res, totalMedia: totalMedia };
-            })()
-            """
-            try:
-                page.wait_for_timeout(2000)
-                precheck_result = page.evaluate(scan_script)
-                if precheck_result and precheck_result.get("totalMedia") == 0:
-                    print("\n" + "="*60)
-                    print("🎯 本地預檢結論：全站所有內部網頁均未發現任何時基媒體元素！")
-                    print("   WCAG 2.2 Guideline 1.2（時基媒體）不適用於此網站（PASS / N/A）。")
-                    print("   已為您自動通過審查，成功節省 100% AI Token 消耗！")
-                    print("="*60 + "\n")
-                    
-                    if args.record:
-                        report_path = os.path.join(record_dir, "report.md")
-                        with open(report_path, "w", encoding="utf-8") as rf:
-                            rf.write(f"# WCAG 2.2 Guideline 1.2 本地預檢報告\n\n")
-                            rf.write(f"- **WCAG 檢測章節**: `WCAG 1.2`\n")
-                            rf.write(f"- **檢測目標**: {args.url}\n")
-                            rf.write(f"- **結果**: ✅ **PASS (Not Applicable)**\n")
-                            rf.write(f"- **說明**: 本地自動化腳本掃描了全站 {len(precheck_result['results'])} 個子頁面，確認無任何 `<video>`、`<audio>`、`<iframe>` 等時基媒體元素，無須調用 AI 算力。\n")
-                    
-                    return
-                else:
-                    print(f"[*] 本地檢測到 {precheck_result.get('totalMedia')} 個頁面包含潛在媒體元素，啟動 AI 代理進行深度審查...")
-            except Exception as e:
-                print(f"[WARNING] 本地預檢失敗，將降級啟動 AI 進行全面審查: {e}")
-        initial_screenshot = page.screenshot(type="png")
-        
-        # 儲存初始截圖
-        initial_screenshot_name = "step_0_initial.png"
-        if record_dir:
-            with open(os.path.join(record_dir, initial_screenshot_name), "wb") as f:
-                f.write(initial_screenshot)
-        report_file.write(f"## 🎬 初始狀態\n")
-        report_file.write(f"已導航至 {args.url}，初始畫面如下：\n\n")
-        report_file.write(f"![初始截圖]({initial_screenshot_name})\n\n")
-        report_file.flush()
-        
-        # Level 2 Focus Scan (若任務與鍵盤、焦點或 Tab 鍵相關，自動執行焦點掃描並附加於 Prompt)
-        is_keyboard_task = any(kw in user_task.lower() or kw in extra_instructions.lower() for kw in ["keyboard", "tab", "focus", "按鍵", "鍵盤", "焦點"])
-        if is_keyboard_task:
-            print("[*] 偵測到鍵盤或焦點相關任務，啟動本地 Focus-Path 焦點路徑掃描器...")
-            
-            # 等待前端 React/JS 框架渲染 DOM 完成
-            try:
-                page.wait_for_load_state("networkidle", timeout=3000)
-            except Exception:
-                pass
-            page.wait_for_timeout(2000)  # 保險等待 2 秒以防動態加載延遲
-            
-            focus_map = scan_focus_path(page)
-            if focus_map:
-                print(f"[✓] 掃描完成！共尋找到 {len(focus_map)} 個可聚焦元素。")
-                
-                table_lines = [
-                    "\n\n### 🔍 本地自動化焦點順序地圖 (Focus Map)",
-                    "以下為本地 Focus-Path 掃描器自動聚焦遍歷所有元素得到的順序與資訊：\n",
-                    "| 順序 | 標籤 (Tag) | 識別碼 (ID) | 類別 (Class) | 文字內容/標題 | 坐標 (X, Y) | 焦點環 CSS 樣式 (Outline) |",
-                    "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
-                ]
-                for item in focus_map:
-                    idx = item.get("idx", item.get("index", 1))
-                    tag = item.get("tag", item.get("tagName", "element"))
-                    el_id = item.get("id", "")
-                    className = item.get("className", "")
-                    text = item.get("text", "")
-                    pos = item.get("pos", [item.get("x", 0), item.get("y", 0)])
-                    x, y = pos[0], pos[1]
-                    outline = item.get("outline", "visible" if item.get("focusVis") else "none")
-                    
-                    table_lines.append(
-                        f"| {idx} | {tag} | `{el_id}` | `{className}` | {text} | {x},{y} | `{outline}` |"
-                    )
-                
-                max_t_str = f"{args.max_turns} 回合" if args.max_turns else "10~25 回合"
-                focus_map_text = "\n".join(table_lines)
-                extra_instructions += f"\n\n{focus_map_text}\n\n**【⚠️ 核心操作指示：請嚴格遵守以節省 Token 且確保無障礙檢測準確性】**\n" \
-                                      f"1. **對照視覺與地圖 (關鍵)**：上表為本地能被 focus() 的元素。請仔細觀察螢幕截圖中的所有「視覺上可互動元素」（例如選單、按鈕、以及特別注意分頁標籤如 **IPv4/IPv6**、**2.4GHz/5GHz** 等）。如果截圖中看得見某個互動元素，但它**不在**上表的 Focus Map 中，代表該元素「完全無法被鍵盤聚焦」，這是嚴重的 **WCAG 2.1.1 (Keyboard) 違規**！請直接在結論中指出此違規，並說明哪些元素缺失。\n" \
-                                      f"2. **禁止無意義遍歷**：你**絕對不需要**手動按 Tab 鍵逐一走過上表每一個正常的元素！請直接利用 Focus Map 進行靜態對照與分析。\n" \
-                                      f"3. **針對疑點標靶測試**：你**只需要針對有疑慮的 1~2 個特定元素**（例如有視覺標籤但地圖中缺失的元素，或是地圖中顯示 `outline: none` 的元素）進行鍵盤按鍵或點擊實體切換，以驗證其是否可以被 Enter (Return) 鍵激活，或確認是否真的無法聚焦。\n" \
-                                      f"4. **多鍵發送捷徑**：如果你需要按多次 Tab 鍵來到達某個元素，你可以將按鍵以空格分隔在同一個指令中發送（例如：`\"text\": \"Tab Tab Tab Tab\"`），系統會在一回合內連續按鍵，請多加利用以節省回合數。\n" \
-                                      f"5. **高效率完成任務**：驗證完重點頁面與疑點後，**請立即產出『包含 3 位數 WCAG 合規表格』的最終診斷報告並結束任務**。請將整個任務控制在 **{max_t_str}** 內完成。**"
-                
-                report_file.write(f"\n### 🔍 自動掃描焦點地圖\n已自動掃描整頁可聚焦元素，共發現 {len(focus_map)} 個元素，詳細焦點順序地圖已注入 AI 上下文中。\n")
-                report_file.flush()
-                
         # Level 3 Link Mapping Scan (若為 WCAG 指南任務，自動提取網站地圖注入給 AI，防止盲目點選)
         if args.wcag:
             try:
@@ -2016,123 +1896,196 @@ def main():
                     links_text = "\n".join([f"- {url} ({text})" for url, text in link_items])
                     extra_instructions += f"\n\n【網站關鍵同源頁面 URL 地圖 (Site Map - Top 15 URLs)】:\n{links_text}\n\n" \
                                           f"**【⚠️ 導航降本增效核心指示】**\n" \
-                                          f"1. **直接 URL 導航**：上表列出了網站的核心內部頁面 URL。如果你需要巡檢或跳轉至其他子頁面，**請直接使用 `navigate` 工具載入對應網址**，絕對不要手動去點擊選單按鈕！這可以為您節省高達 90% 的時間與 Token 消耗。\n" \
+                                          f"1. **禁止自行隨意導航**：系統已為您自動導航至目標頁面。若您因業務邏輯需要巡檢其他子頁面，請優先參考上表 URL 並使用 `navigate` 工具，但請優先完成當前頁面的審查任務。\n" \
                                           f"2. **外部網域已封鎖**：非上表 host 的外部連結已在瀏覽器層面被自動屏蔽，請不要嘗試訪問。"
                     print(f"[✓] 提取完成！已精簡提取頂層 {len(link_items)} 個同源子頁面 URL 注入 AI 上下文 (省 80% Token)。")
             except Exception as e:
                 print(f"[WARNING] 提取網站地圖失敗: {e}")
 
-        # 建立第一次互動
-        interaction = agent.create_initial_interaction(user_task, initial_screenshot, extra_instructions)
+        # --- 餵食者 (Feeder) 邏輯：決定目標頁面清單 ---
+        target_pages = []
+        sitemap_target_file = args.sitemap if args.sitemap else "sitemaps/sitemap.json"
         
-        # 紀錄 Token 消耗
-        init_tokens = get_interaction_tokens(interaction)
-        total_input_tokens += init_tokens["input"]
-        total_output_tokens += init_tokens["output"]
-        total_tokens += init_tokens["total"]
-        print(f"[*] Initial Turn Token Usage - Input: {init_tokens['input']}, Output: {init_tokens['output']}, Total: {init_tokens['total']}")
-            
-        # AI 代理執行循環
-        for turn in range(args.max_turns):
-            # 自動標記當前頁面 URL 為已動態 AI 校對 Checkpoint
-            sitemap_target_file = args.sitemap if args.sitemap else "smart4-map.json"
-            mark_dynamic_verified(sitemap_target_file, page.url)
-            
-            print(f"\n{'='*60}")
-            print(f"[TURN {turn + 1}/{args.max_turns}]")
-            print(f"{'='*60}")
-            
-            report_file.write(f"## 🔄 第 {turn + 1} 回合 (Turn {turn + 1})\n")
-            log_file.write(f"--- Turn {turn + 1} ---\n")
-            
-            # 提取並印出 AI 的文字回應（如果有的話，例如思考過程或中間說明）
-            text_response = agent.extract_text_response(interaction)
-            if text_response.strip():
-                print(f"\n[AI] {text_response}")
-                report_file.write(f"🤖 **AI 的思考與說明**:\n> {text_response}\n\n")
-                log_file.write(f"AI: {text_response}\n")
-                
-                # 若 AI 文字回應包含 WCAG 合規對照表或詳細診斷報告，將其完全 Dump 至單頁結算檔案中
-                if any(kw in text_response for kw in ["WCAG", "合規", "對照表", "條款", "第 1 章", "診斷報告", "Success Criteria"]):
-                    dump_single_page_settlement_report(sitemap_target_file, page.url, text_response)
+        # 情境 A: 使用者明確指定了單一網頁，或啟用了單網頁強制模式
+        if args.single_page or (args.url and args.url != INITIAL_URL):
+            target_pages = [{"path": urlparse(args.url).path or "/", "url": args.url}]
+            print(f"[*] [FEEDER] 執行單一目標網頁: {args.url}")
+        
+        # 情境 B: 使用者指定了 Sitemap 且沒有指定特定 URL，則掃描地圖中未驗證的頁面
+        elif args.sitemap and os.path.exists(args.sitemap):
+            try:
+                with open(args.sitemap, "r", encoding="utf-8") as f:
+                    sdata = json.load(f)
+                    nodes = sdata.get("nodes", {})
+                    # 篩選出未動態驗證過且不是目錄的頁面
+                    pending = []
+                    for p, n in nodes.items():
+                        if not n.get("dynamic_verified_at") and n.get("status") != "CATEGORY":
+                            full_url = urllib.parse.urljoin(args.url or INITIAL_URL, p)
+                            pending.append({"path": p, "url": full_url})
+                    
+                    if pending:
+                        target_pages = pending
+                        print(f"[*] [FEEDER] 從地圖中發現 {len(target_pages)} 個待動態掃描頁面。")
+                    else:
+                        target_pages = [{"path": "/", "url": args.url or INITIAL_URL}]
+                        print(f"[*] [FEEDER] 地圖中無未驗證頁面，預設執行首頁。")
+            except Exception as fe:
+                print(f"[WARNING] 讀取地圖失敗: {fe}")
+                target_pages = [{"path": "/", "url": args.url or INITIAL_URL}]
+        
+        # 情境 C: 預設執行單一初始網址
+        else:
+            target_pages = [{"path": "/", "url": args.url or INITIAL_URL}]
 
-            # 檢查是否有操作指令，若無則結束
-            if not agent.has_function_calls(interaction):
-                print("\n[OK] Task completed")
-                report_file.write(f"✅ **任務已完成**：AI 未發送進一步的操作指令。\n\n")
-                log_file.write("Task completed.\n")
-                if text_response.strip():
-                    dump_single_page_settlement_report(sitemap_target_file, page.url, text_response)
-                break
+        # --- 餵食者循環 (Feeder Loop) ---
+        for page_idx, target in enumerate(target_pages):
+            current_url = target["url"]
+            print(f"\n\n{'#'*80}")
+            print(f"🚀 [FEEDER] 正在處理第 {page_idx+1}/{len(target_pages)} 頁: {target['path']}")
+            print(f"   目標網址: {current_url}")
+            print(f"{'#'*80}\n")
+
+            # 系統自動導航至目標頁面 (減少 AI 導航損耗)
+            if page.url != current_url:
+                print(f"[>>] 系統自動跳轉至: {current_url}")
+                page.goto(current_url)
+                page.wait_for_timeout(1000)
+                try:
+                    page.focus("body")
+                except Exception:
+                    pass
+
+            # 若為跨頁掃描，重新執行登入檢查（避免 session 過期）
+            if page_idx > 0:
+                from config import AUTO_LOGIN_USERNAME, AUTO_LOGIN_PASSWORD
+                login_user = args.username if args.username is not None else AUTO_LOGIN_USERNAME
+                login_pass = args.password if args.password is not None else AUTO_LOGIN_PASSWORD
+                
+                # 簡單檢查是否被踢回登入頁
+                actual_url = page.url.lower()
+                if "login" in actual_url and "login/status" not in actual_url:
+                    print("[!] 檢測到 Session 失效，執行自動重新登入...")
+                    login_toks = perform_ai_login_phase(page, args.model, login_user, login_pass)
+                    total_input_tokens += login_toks["input"]
+                    total_output_tokens += login_toks["output"]
+                    page.goto(current_url) # 重新回到目標頁
+
+            initial_screenshot = page.screenshot(type="png")
             
-            # 執行操作
-            report_file.write(f"⚙️ **執行的操作**:\n")
-            for step in interaction.steps:
-                if step.type == "function_call":
-                    report_file.write(f"- **動作**: `{step.name}`\n")
-                    report_file.write(f"  - **參數**: `{json.dumps(step.arguments, ensure_ascii=False)}`\n")
-                    log_file.write(f"Command: {step.name}({json.dumps(step.arguments, ensure_ascii=False)})\n")
-            report_file.flush()
-            
-            results = execute_function_calls(interaction, page, viewport_width, viewport_height)
-            
-            # 擷取執行後狀態並同步地圖 Checkpoint
-            function_responses = get_function_responses(page, results, interaction)
-            mark_dynamic_verified(sitemap_target_file, page.url)
-            
-            # 拍照存檔用於報告
-            post_screenshot = page.screenshot(type="png")
+            # 儲存初始截圖
+            initial_screenshot_name = f"page_{page_idx}_step_0_initial.png"
             if record_dir:
-                screenshot_name = f"step_{turn + 1}_post.png"
-                with open(os.path.join(record_dir, screenshot_name), "wb") as f:
-                    f.write(post_screenshot)
-            report_file.write(f"\n📸 **執行後畫面**:\n![步驟截圖]({screenshot_name if record_dir else ''})\n\n")
+                with open(os.path.join(record_dir, initial_screenshot_name), "wb") as f:
+                    f.write(initial_screenshot)
+            report_file.write(f"\n# 🌐 頁面巡檢: {target['path']}\n")
+            report_file.write(f"## 🎬 初始狀態\n")
+            report_file.write(f"已導航至 {current_url}，初始畫面如下：\n\n")
+            report_file.write(f"![初始截圖]({initial_screenshot_name})\n\n")
             report_file.flush()
             
-            # 繼續對話
-            interaction = agent.continue_interaction(interaction.id, function_responses)
+            # 取得該頁面的 Focus Map
+            page_extra_instructions = extra_instructions
+            is_keyboard_task = any(kw in user_task.lower() or kw in page_extra_instructions.lower() for kw in ["keyboard", "tab", "focus", "按鍵", "鍵盤", "焦點"])
+            if is_keyboard_task:
+                print(f"[*] 執行 [{target['path']}] Focus-Path 掃描...")
+                page.wait_for_timeout(1000)
+                focus_map = scan_focus_path(page)
+                if focus_map:
+                    table_lines = ["\n### 🔍 本頁面自動化焦點地圖 (Focus Map)\n", "| 順序 | 標籤 | ID | 文字 | 坐標 | 焦點可見 (Focus Visible) |", "| :--- | :--- | :--- | :--- | :--- | :--- |"]
+                    for item in focus_map[:35]: # 限制數量避免 token 太長
+                        vis_status = "✅ YES (Has Outline)" if item.get('focusVis') else f"❌ NO ({item.get('outline', 'none')})"
+                        table_lines.append(f"| {item.get('idx',1)} | {item.get('tag','')} | `{item.get('id','')}` | {item.get('text','')} | {item.get('pos',[0,0])} | {vis_status} |")
+                    
+                    page_extra_instructions += "\n" + "\n".join(table_lines)
+                    page_extra_instructions += f"\n\n**【⚠️ Scoped Audit 指示】**：\n" \
+                                              f"1. 你目前被系統主動引導至 `{target['path']}`，請對此頁面進行無障礙驗證。\n" \
+                                              f"2. **焦點地圖已提供**：系統已預先為你掃描並附上『Focus Map』數據（包含坐標與 Outline 樣式）。請直接利用此數據評估 WCAG 2.1.1 (鍵盤) 與 2.4.7 (焦點可見度)，**無需**再次執行 `scan_focus_path` 或手動逐一按 Tab 鍵驗證（除非你需要確認動態變化）。\n" \
+                                              f"3. **完成任務**：完成此頁面審查後，請產出報告並直接結束對話，以便系統切換至下一頁。"
+
+            # 決定是否需要注入特定領域的專業技能 (Skill / SOP)
+            active_skill = None
+            if args.wcag:
+                active_skill = "wcag_audit_sop"
+                print(f"[*] 注入專業領域 Skill: {active_skill}")
+
+            # 建立該頁面的專屬互動 (這會清除之前的對話 Log / Reset Context)
+            interaction = agent.create_initial_interaction(
+                user_task, 
+                initial_screenshot, 
+                page_extra_instructions,
+                skill=active_skill
+            )
             
             # 紀錄 Token 消耗
-            turn_tokens = get_interaction_tokens(interaction)
-            total_input_tokens += turn_tokens["input"]
-            total_output_tokens += turn_tokens["output"]
-            total_tokens += turn_tokens["total"]
-            print(f"[*] Turn {turn + 1} Token Usage - Input: {turn_tokens['input']}, Output: {turn_tokens['output']}, Total: {turn_tokens['total']}")
-        
-        else:
-            print(f"\n[!] Max turns reached ({args.max_turns})")
-            report_file.write(f"⚠️ **已達到最大執行回合數** ({args.max_turns})。\n\n")
-            
-            # 當達到最大回合數時，發送最後一次對話獲取評估總結結論
-            try:
-                sum_res = agent.get_final_summary(interaction.id)
-                summary = ""
-                if isinstance(sum_res, dict):
-                    summary = sum_res.get("summary", "")
-                    usage = sum_res.get("usage", {})
-                    total_input_tokens += usage.get("input", 0)
-                    total_output_tokens += usage.get("output", 0)
-                    total_tokens += usage.get("total", 0)
-                elif isinstance(sum_res, str):
-                    summary = sum_res
+            init_tokens = get_interaction_tokens(interaction)
+            total_input_tokens += init_tokens["input"]
+            total_output_tokens += init_tokens["output"]
+            print(f"[*] [PAGE {page_idx+1}] Initial Tokens - In: {init_tokens['input']}, Out: {init_tokens['output']}")
+                
+            # AI 單頁代理執行循環
+            for turn in range(args.max_turns):
+                # 自動標記當前頁面 URL 為已動態 AI 校對 Checkpoint
+                mark_dynamic_verified(sitemap_target_file, page.url)
+                
+                print(f"\n[PAGE {page_idx+1} | TURN {turn + 1}/{args.max_turns}]")
+                
+                report_file.write(f"### 🔄 第 {turn + 1} 回合\n")
+                
+                text_response = agent.extract_text_response(interaction)
+                if text_response.strip():
+                    print(f"🤖 [AI 思考輸出]:\n{text_response}\n")
+                    report_file.write(f"🤖 **AI**: {text_response}\n\n")
+                    # 只有當 AI 本回合 **沒有** 呼叫工具時（代表是最終結論或階段性總結），才寫入結案報告
+                    if not agent.has_function_calls(interaction):
+                        if any(kw in text_response for kw in ["WCAG", "合規", "對照表", "診斷報告"]):
+                            dump_single_page_settlement_report(sitemap_target_file, page.url, text_response)
 
-                if summary and summary.strip():
-                    print(f"\n[AI 最終總結結論]\n{summary}\n")
-                    report_file.write(f"🤖 **AI 最終評估總結結論**:\n{summary}\n\n")
-                    log_file.write(f"AI Final Summary: {summary}\n")
-                    dump_single_page_settlement_report(sitemap_target_file, page.url, summary)
-            except Exception as summary_err:
-                print(f"[!] Failed to get final summary from AI: {summary_err}")
-        
-        # 輸出 Token 統計與計費資訊至主控台、報告與日誌
+                if not agent.has_function_calls(interaction):
+                    print(f"[✓] [PAGE {page_idx+1}] 任務完成。")
+                    report_file.write(f"✅ **本頁面任務已完成**。\n\n")
+                    break
+                
+                results = execute_function_calls(interaction, page, viewport_width, viewport_height)
+                function_responses = get_function_responses(page, results, interaction)
+                
+                # 拍照
+                post_screenshot = page.screenshot(type="png")
+                screenshot_name = f"page_{page_idx}_turn_{turn + 1}_post.png"
+                if record_dir:
+                    with open(os.path.join(record_dir, screenshot_name), "wb") as f:
+                        f.write(post_screenshot)
+                report_file.write(f"📸 ![步驟截圖]({screenshot_name})\n\n")
+                
+                interaction = agent.continue_interaction(interaction.id, function_responses)
+                
+                turn_tokens = get_interaction_tokens(interaction)
+                total_input_tokens += turn_tokens["input"]
+                total_output_tokens += turn_tokens["output"]
+                print(f"[*] [PAGE {page_idx+1} | TURN {turn + 1}] Turn Tokens - In: {turn_tokens['input']}, Out: {turn_tokens['output']}")
+            else:
+                print(f"[!] [PAGE {page_idx+1}] 已達最大回合數，要求 AI 產出最終總結...")
+                report_file.write(f"⚠️ **已達最大回合數**，產出最終總結... \n\n")
+                try:
+                    summary_data = agent.get_final_summary(interaction.id)
+                    final_summary = summary_data["summary"]
+                    total_input_tokens += summary_data["usage"]["input"]
+                    total_output_tokens += summary_data["usage"]["output"]
+                    
+                    report_file.write(f"🤖 **AI 最終總結**: \n\n{final_summary}\n\n")
+                    # 將最大回合數強迫產出的總結也寫入 Sitemap settlement
+                    dump_single_page_settlement_report(sitemap_target_file, page.url, final_summary)
+                    print(f"[✓] [PAGE {page_idx+1}] 最終總結已完成並寫入報告。")
+                except Exception as se:
+                    print(f"[!] 產出總結失敗: {se}")
+
+        # --- 結算所有頁面的 Token ---
         print_token_and_cost_summary(args.model, total_input_tokens, total_output_tokens, report_file)
         printed_token_summary = True
         
-        log_file.write(f"\nTotal Token Usage - Input: {total_input_tokens}, Output: {total_output_tokens}, Total: {total_tokens}\n")
-        log_file.flush()
-        
-        print(f"\n[-] Closing browser in {RESULT_OBSERVATION_TIME} seconds...")
+        print(f"\n[-] 任務結束，將於 {RESULT_OBSERVATION_TIME} 秒後關閉...")
         time.sleep(RESULT_OBSERVATION_TIME)
+
 
     except BaseException as e:
         if not isinstance(e, SystemExit) or e.code != 0:

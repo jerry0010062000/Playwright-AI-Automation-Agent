@@ -98,13 +98,25 @@ class ClaudeAgent:
         self, 
         task: str, 
         screenshot_bytes: bytes,
-        extra_instructions: str = ""
+        extra_instructions: str = "",
+        skill: str = None
     ):
         """
         建立第一次 Claude 互動
         """
         screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
         
+        # 整合核心技能 (SOP) 提示詞
+        from prompts import build_prompt
+        enhanced_task = build_prompt(
+            task=task,
+            role=self.role,
+            behavior=self.behavior,
+            output_format=self.output_format,
+            extra_instructions=extra_instructions,
+            skill=skill
+        )
+
         # 建立初始對話歷史
         self.messages = [
             {
@@ -112,7 +124,7 @@ class ClaudeAgent:
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Task: {task}\n\nExtra instructions (if any): {extra_instructions}"
+                        "text": enhanced_task
                     },
                     {
                         "type": "image",
@@ -225,6 +237,9 @@ class ClaudeAgent:
             betas=betas
         )
         
+        # 提取回應文字
+        summary = "".join([block.text for block in response.content if block.type == "text"])
+        
         tokens = {"input": 0, "output": 0, "total": 0}
         if hasattr(response, "usage") and response.usage:
             tokens["input"] = getattr(response.usage, "input_tokens", 0)
@@ -266,7 +281,7 @@ class ClaudeAgent:
                 else:
                     msg["content"][j]["content"][k] = replacement
 
-    def _apply_sliding_window(self, keep_recent_turns: int = 3, max_history_turns: int = None):
+    def _apply_sliding_window(self, keep_recent_turns: int = 15, max_history_turns: int = None):
         """
         結構安全之歷史內容輕量化 (Structural-Safe Token Pruning)：
         保持 Anthropic API 嚴格的 tool_use <-> tool_result ID 配對鏈完好無損，
@@ -310,25 +325,23 @@ class ClaudeAgent:
         """
         整合 prompts.py 中的系統提示詞，包含角色特徵、行為原則與例外處理。
         """
-        from prompts import SYSTEM_PROMPTS, BEHAVIOR_GUIDELINES, SITUATION_HANDLERS, OUTPUT_FORMATS
+        from prompts import IDENTITY_DEFINITIONS, OPERATIONAL_PROTOCOLS, OUTPUT_SPECIFICATIONS
         prompt_parts = []
         
         # 1. 系統角色
-        if self.role in SYSTEM_PROMPTS:
-            prompt_parts.append(SYSTEM_PROMPTS[self.role])
+        role_prompt = IDENTITY_DEFINITIONS.get(self.role, IDENTITY_DEFINITIONS.get("default", ""))
+        if role_prompt:
+            prompt_parts.append(role_prompt)
         
         # 2. 行為指引 (包含死循環停損原則)
-        if self.behavior in BEHAVIOR_GUIDELINES:
-            prompt_parts.append(BEHAVIOR_GUIDELINES[self.behavior])
+        behavior_prompt = OPERATIONAL_PROTOCOLS.get(self.behavior, OPERATIONAL_PROTOCOLS.get("careful", ""))
+        if behavior_prompt:
+            prompt_parts.append(behavior_prompt)
             
-        # 3. 特殊情境處理
-        prompt_parts.append("\n【特殊情境處理】")
-        for handler in SITUATION_HANDLERS.values():
-            prompt_parts.append(handler)
-            
-        # 4. 輸出格式
-        if self.output_format in OUTPUT_FORMATS:
-            prompt_parts.append(f"\n【回報格式】{OUTPUT_FORMATS[self.output_format]}")
+        # 3. 輸出格式
+        output_prompt = OUTPUT_SPECIFICATIONS.get(self.output_format, OUTPUT_SPECIFICATIONS.get("natural", ""))
+        if output_prompt:
+            prompt_parts.append(output_prompt)
             
         return "\n\n".join(prompt_parts)
 
@@ -336,7 +349,9 @@ class ClaudeAgent:
         """呼叫 Claude Messages API 並轉換為統一互動格式"""
         # 執行歷史截圖剪裁與滑動視窗對話截斷，嚴格封頂 Token 消耗
         self._prune_history_images()
-        self._apply_sliding_window(max_history_turns=3)
+        # 由於 Feeder 模式在換頁時會徹底清除 interaction 記憶，
+        # 在單頁內的對話不進行特別的回合剪裁或限制，以維持 AI 對該頁面的完整判斷力。
+        # self._apply_sliding_window(max_history_turns=15)
         
         # 建立完整的系統提示詞 (包含行為原則與停損指南)
         system_prompt = self._build_system_prompt()

@@ -338,9 +338,21 @@ def _handle_claude_computer_action(page, args: dict, screen_width: int, screen_h
                         translated_parts.append("Meta")
                     elif p in ("return", "enter"):
                         translated_parts.append("Enter")
+                    elif p in ("escape", "esc"):
+                        translated_parts.append("Escape")
+                    elif p in ("right", "arrowright"):
+                        translated_parts.append("ArrowRight")
+                    elif p in ("left", "arrowleft"):
+                        translated_parts.append("ArrowLeft")
+                    elif p in ("up", "arrowup"):
+                        translated_parts.append("ArrowUp")
+                    elif p in ("down", "arrowdown"):
+                        translated_parts.append("ArrowDown")
+                    elif p == "space":
+                        translated_parts.append("Space")
                     else:
                         if len(p) > 1:
-                            # 針對 Playwright 的特定按鍵進行首字母大寫轉換（如 ArrowRight）
+                            # 針對 Playwright 的特定按鍵進行首字母大寫轉換（如 PageUp）
                             translated_parts.append(part.strip().capitalize())
                         else:
                             translated_parts.append(part.strip())
