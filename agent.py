@@ -677,7 +677,7 @@ def perform_ai_login_phase(page, model_name, username, password):
             
             text_response = agent.extract_text_response(interaction)
             if text_response.strip():
-                print(f"[AI LOGIN] AI: {text_response}")
+                print(f"[AI LOGIN] 🤖 [AI 思考輸出]:\n{text_response}\n")
                 
             if not agent.has_function_calls(interaction):
                 print("[AI LOGIN] [✓] AI 結束登入操作。")
@@ -1207,13 +1207,12 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
                     # 例如：/data/PhoneBook.json?search=A
                     is_json_endpoint = '.json' in child_rel.lower().split('?')[0]
                     
-                    # 額外過濾：跳過明顯錯誤的相對路徑（不是以 /html/ 開頭且不是根路徑）
+                    # 額外過濾：跳過無 / 開頭但含有 / 的相對路徑（非根路徑且非絕對 URL）
                     # 例如：overview/index.html, phone/phone_internet.html 等
-                    # 這些是由於 HTML 中的相對路徑被錯誤解析導致的
+                    # 這些是由於 HTML 中的相對路徑在 SPA 或乾淨 URL 下被錯誤解析導致的
                     is_invalid_relative = (
                         child_rel != "/" and 
-                        not child_rel.startswith("/html/") and 
-                        not child_rel.startswith("/data/") and
+                        not child_rel.startswith("/") and 
                         "/" in child_rel and
                         not child_rel.startswith("http")
                     )
