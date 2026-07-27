@@ -43,6 +43,87 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 
+def restructure_sitemap_hierarchy(nodes: dict) -> dict:
+    """
+    重構 Sitemap 節點階層，自動補齊中間路徑的虛擬 CATEGORY 目錄節點，
+    並重構 parent / children 關聯，使視覺化樹狀圖具有分支深度感。
+    """
+    import datetime
+    
+    # 1. 蒐集並補齊所有中間節點
+    original_paths = list(nodes.keys())
+    
+    for path in original_paths:
+        if path == "/":
+            continue
+            
+        # 移去前後的斜線並分割路徑
+        parts = [p for p in path.strip("/").split("/") if p]
+        
+        # 逐層建立中間路徑
+        for i in range(1, len(parts)):
+            intermediate_parts = parts[:i]
+            intermediate_path = "/" + "/".join(intermediate_parts)
+            
+            # 若中間路徑節點不存在，則新增為 CATEGORY 節點
+            if intermediate_path not in nodes:
+                part_name = intermediate_parts[-1]
+                # 美化名稱，例如: system -> System
+                title_name = part_name.capitalize() if not part_name.endswith(('.htm', '.html')) else part_name
+                
+                nodes[intermediate_path] = {
+                    "path": intermediate_path,
+                    "title": f"📁 {title_name}",
+                    "parent": None, # 後續統一建立關聯
+                    "children": [],
+                    "is_leaf": False,
+                    "depth": len(intermediate_parts),
+                    "status": "CATEGORY",
+                    "error": False,
+                    "initialized": True,
+                    "initialized_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+
+    # 2. 清空所有節點的 children，準備重新建立關聯
+    for path, node in nodes.items():
+        node["children"] = []
+        node["parent"] = None
+
+    # 3. 重新建立 parent 和 children 關係
+    for path, node in nodes.items():
+        if path == "/":
+            continue
+            
+        # 尋找該節點在路徑層級上的父路徑
+        parts = [p for p in path.strip("/").split("/") if p]
+        if len(parts) == 1:
+            # 只有一層，例如 /advanced 或 /overview，父節點為根節點 /
+            parent_path = "/"
+        else:
+            # 多層，例如 /advanced/network -> 父節點為 /advanced
+            parent_path = "/" + "/".join(parts[:-1])
+            
+        # 安全檢查，父節點必定存在（因為第 1 步已補齊）
+        if parent_path in nodes:
+            node["parent"] = parent_path
+            if path not in nodes[parent_path]["children"]:
+                nodes[parent_path]["children"].append(path)
+                
+    # 4. 重新計算 is_leaf 和 depth
+    for path, node in nodes.items():
+        if path == "/":
+            node["depth"] = 0
+            node["parent"] = None
+        else:
+            parts = [p for p in path.strip("/").split("/") if p]
+            node["depth"] = len(parts)
+            
+        node["is_leaf"] = (len(node.get("children", [])) == 0)
+        
+    return nodes
+
+
+
 from config import (
     GEMINI_API_KEY, CLAUDE_API_KEY,
     SCREEN_WIDTH, SCREEN_HEIGHT, MAX_TURNS, HEADLESS,
@@ -916,9 +997,9 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
     if removed_static_resources:
         print(f"[🧹] 清理了 {len(removed_static_resources)} 個靜態資源節點 (圖片、CSS、JS 等)")
     
-    # 清理後重新獲取節點列表
-    unverified_paths = [p for p, n in nodes.items() if not n.get("initialized")]
-    verified_paths = [p for p, n in nodes.items() if n.get("initialized")]
+    # 清理後重新獲取節點列表 (排除虛擬目錄分類節點 CATEGORY)
+    unverified_paths = [p for p, n in nodes.items() if not n.get("initialized") and n.get("status") != "CATEGORY"]
+    verified_paths = [p for p, n in nodes.items() if n.get("initialized") and n.get("status") != "CATEGORY"]
     
     # 將根節點和主要頁面優先排序（確保能快速掃描到新連結）
     priority_paths = ["/", "/login", "/overview", "/advanced"]
@@ -1273,6 +1354,7 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
         # 每走訪 5 個頁面實時寫入一次檔案防崩潰
         if visited_in_run % 5 == 0:
             try:
+                nodes = restructure_sitemap_hierarchy(nodes)
                 sitemap_data["nodes"] = nodes
                 sitemap_data["total_pages"] = len(nodes)
                 sitemap_data["last_verified"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1281,9 +1363,8 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
             except Exception:
                 pass
 
-    # 重新計算與更新 is_leaf
-    for p, node in nodes.items():
-        node["is_leaf"] = (len(node.get("children", [])) == 0)
+    # 進行最終地圖階層重構，自動補齊中階虛擬目錄節點，重新建立階層關聯，以使樹狀圖更有分支深度感
+    nodes = restructure_sitemap_hierarchy(nodes)
 
     sitemap_data["total_pages"] = len(nodes)
     sitemap_data["last_verified"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
