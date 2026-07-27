@@ -11,7 +11,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:12:51",
+      "initialized_at": "2026-07-27 11:18:23",
       "is_leaf": false,
       "depth": 0
     },
@@ -32,7 +32,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:12:54"
+      "initialized_at": "2026-07-27 11:18:26"
     },
     "/overview": {
       "path": "/overview",
@@ -44,7 +44,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:12:52"
+      "initialized_at": "2026-07-27 11:18:25"
     },
     "/advanced/status": {
       "path": "/advanced/status",
@@ -56,7 +56,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:12:55"
+      "initialized_at": "2026-07-27 11:18:27"
     },
     "/advanced/network/lan/ip": {
       "path": "/advanced/network/lan/ip",
@@ -68,7 +68,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:12:57"
+      "initialized_at": "2026-07-27 11:18:29"
     },
     "/advanced/network/lan/static_dhcp.htm": {
       "path": "/advanced/network/lan/static_dhcp.htm",
@@ -80,7 +80,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:12:58"
+      "initialized_at": "2026-07-27 11:18:30"
     },
     "/advanced/network/wan.htm": {
       "path": "/advanced/network/wan.htm",
@@ -92,7 +92,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:00"
+      "initialized_at": "2026-07-27 11:18:32"
     },
     "/advanced/network/wifi/settings": {
       "path": "/advanced/network/wifi/settings",
@@ -104,7 +104,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:01"
+      "initialized_at": "2026-07-27 11:18:33"
     },
     "/advanced/network/wifi/guest": {
       "path": "/advanced/network/wifi/guest",
@@ -116,7 +116,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:02"
+      "initialized_at": "2026-07-27 11:18:35"
     },
     "/advanced/network/wifi/wps": {
       "path": "/advanced/network/wifi/wps",
@@ -128,7 +128,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:04"
+      "initialized_at": "2026-07-27 11:18:36"
     },
     "/advanced/network/wifi/mac-filter": {
       "path": "/advanced/network/wifi/mac-filter",
@@ -140,7 +140,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:05"
+      "initialized_at": "2026-07-27 11:18:37"
     },
     "/advanced/firewall/fw_level.htm": {
       "path": "/advanced/firewall/fw_level.htm",
@@ -152,7 +152,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:07"
+      "initialized_at": "2026-07-27 11:18:39"
     },
     "/advanced/firewall/fw_acl.htm": {
       "path": "/advanced/firewall/fw_acl.htm",
@@ -164,7 +164,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:08"
+      "initialized_at": "2026-07-27 11:18:40"
     },
     "/advanced/firewall/fw_dmz.htm": {
       "path": "/advanced/firewall/fw_dmz.htm",
@@ -176,7 +176,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:10"
+      "initialized_at": "2026-07-27 11:18:42"
     },
     "/advanced/firewall/fw_mac.htm": {
       "path": "/advanced/firewall/fw_mac.htm",
@@ -188,7 +188,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:11"
+      "initialized_at": "2026-07-27 11:18:43"
     },
     "/advanced/nat/port_mapping.htm": {
       "path": "/advanced/nat/port_mapping.htm",
@@ -200,7 +200,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:13"
+      "initialized_at": "2026-07-27 11:18:45"
     },
     "/advanced/nat/nat_table.htm": {
       "path": "/advanced/nat/nat_table.htm",
@@ -212,7 +212,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:14"
+      "initialized_at": "2026-07-27 11:18:46"
     },
     "/advanced/routing/rt_static.htm": {
       "path": "/advanced/routing/rt_static.htm",
@@ -224,7 +224,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:16"
+      "initialized_at": "2026-07-27 11:18:48"
     },
     "/advanced/routing/rt_table.htm": {
       "path": "/advanced/routing/rt_table.htm",
@@ -236,7 +236,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:17"
+      "initialized_at": "2026-07-27 11:18:49"
     },
     "/advanced/system/pwd.htm": {
       "path": "/advanced/system/pwd.htm",
@@ -248,7 +248,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:19"
+      "initialized_at": "2026-07-27 11:18:50"
     },
     "/advanced/system/ntp.htm": {
       "path": "/advanced/system/ntp.htm",
@@ -260,7 +260,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:20"
+      "initialized_at": "2026-07-27 11:18:52"
     },
     "/advanced/system/fw.htm": {
       "path": "/advanced/system/fw.htm",
@@ -272,7 +272,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:21"
+      "initialized_at": "2026-07-27 11:18:53"
     },
     "/advanced/system/reset": {
       "path": "/advanced/system/reset",
@@ -284,7 +284,7 @@
       "status": "OK",
       "error": false,
       "initialized": true,
-      "initialized_at": "2026-07-27 11:13:23"
+      "initialized_at": "2026-07-27 11:18:55"
     },
     "/advanced/network": {
       "path": "/advanced/network",
@@ -413,5 +413,5 @@
   "headless": false,
   "record": true,
   "total_pages": 30,
-  "last_verified": "2026-07-27 11:13:23"
+  "last_verified": "2026-07-27 11:18:55"
 }
