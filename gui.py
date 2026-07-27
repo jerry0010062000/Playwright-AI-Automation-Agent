@@ -172,7 +172,7 @@ class LoadingSpinner(tk.Label):
 class WCAGAgentGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("🛡️ Playwright WCAG Accessibility Agent Controller")
+        self.root.title("🛡️ Automated Sitemap Accessibility Control Center")
         self.root.geometry("1100x720")
         self.root.configure(bg=BG_COLOR)
         
@@ -754,17 +754,17 @@ class WCAGAgentGUI:
         self.notebook.select(1)
 
     def get_welcome_banner(self):
-        """傳回 3D 專案縮寫 PW-AI ASCII 歡迎橫幅"""
+        """傳回專案名稱 ASACC ASCII 歡迎橫幅"""
         return (
             "=========================================================\n"
-            "  ██████╗ ██╗██╗    ██╗      █████╗ ██╗\n"
-            "  ██╔══██╗██║██║    ██║     ██╔══██╗██║\n"
-            "  ██████╔╝██║██║ █╗ ██║     ███████║██║\n"
-            "  ██╔═══╝ ██║██║███╗██║     ██╔══██║██║\n"
-            "  ██║     ██║╚███╔███╔╝     ██║  ██║██║\n"
-            "  ╚═╝     ╚═╝ ╚══╝╚══╝      ╚═╝  ╚═╝╚═╝\n"
+            "  █████╗ ███████╗ █████╗  ██████╗  ██████╗\n"
+            " ██╔══██╗██╔════╝██╔══██╗██╔════╝ ██╔════╝\n"
+            " ███████║███████╗███████║██║      ██║     \n"
+            " ██╔══██║╚════██║██╔══██║██║      ██║     \n"
+            " ██║  ██║███████║██║  ██║╚██████╗ ╚██████╗\n"
+            " ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝\n"
             "  -------------------------------------------------------\n"
-            "  🎭 Playwright AI Automation & WCAG Sitemap Agent v2.5\n"
+            "  🛡️ Automated Sitemap Accessibility Control Center v3.0\n"
             "=========================================================\n"
             "[GUI] 歡迎使用 Playwright AI 巡檢與地圖同步控制台！\n"
             "[GUI] 請於左側選擇主要任務類別，點選「🚀 啟動檢測任務」開始。\n\n"
