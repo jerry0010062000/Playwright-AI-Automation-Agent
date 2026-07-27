@@ -13,3 +13,7 @@ temp_test/
 brain/
 scratch/
 
+# Sitemap databases (only keep arc-prpl-map.json as example in Git)
+sitemaps/*
+!sitemaps/arc-prpl-map.json
+
