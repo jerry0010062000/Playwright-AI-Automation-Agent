@@ -6,21 +6,26 @@ echo ==========================================
 echo.
 
 :: 檢查 Python 是否安裝
-set PYTHON_CMD=python
 python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    py --version >nul 2>&1
-    if %errorlevel% equ 0 (
-        set PYTHON_CMD=py
-        echo [提示] 偵測到系統中存在 Python 啟動器 (py)，將使用 py 指令建立虛擬環境。
-    ) else (
-        echo [錯誤] 系統未安裝 Python 或未將其加入環境變數 (PATH)！
-        echo 請前往官網下載並安裝 Python 3.10 以上版本，並勾選 "Add Python to PATH"。
-        echo.
-        pause
-        exit /b 1
-    )
+if %errorlevel% equ 0 (
+    set PYTHON_CMD=python
+    goto python_ok
 )
+
+py --version >nul 2>&1
+if %errorlevel% equ 0 (
+    set PYTHON_CMD=py
+    echo [提示] 偵測到系統中存在 Python 啟動器 (py)，將使用 py 指令建立虛擬環境。
+    goto python_ok
+)
+
+echo [錯誤] 系統未安裝 Python 或未將其加入環境變數 (PATH)！
+echo 請前往官網下載並安裝 Python 3.10 以上版本，並勾選 "Add Python to PATH"。
+echo.
+pause
+exit /b 1
+
+:python_ok
 
 :: 建立虛擬環境 .venv
 if not exist ".venv" (
