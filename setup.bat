@@ -29,7 +29,7 @@ exit /b 1
 
 :: 建立虛擬環境 .venv
 if not exist ".venv" (
-    echo [*] 正在建立虛擬環境 (.venv)...
+    echo [*] 正在建立虛擬環境 .venv...
     %PYTHON_CMD% -m venv .venv
     if %errorlevel% neq 0 (
         echo [錯誤] 建立虛擬環境失敗！
@@ -38,7 +38,7 @@ if not exist ".venv" (
     )
     echo [✓] 虛擬環境建立成功！
 ) else (
-    echo [✓] 已偵測到現有的虛擬環境 (.venv)
+    echo [✓] 已偵測到現有的虛擬環境 .venv
 )
 
 :: 升級 pip 並安裝依賴套件
