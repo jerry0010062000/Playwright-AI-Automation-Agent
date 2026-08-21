@@ -3,6 +3,7 @@ Claude AI 客戶端模組
 處理與 Anthropic Claude API 的互動，包括建立對話、發送截圖、處理回應等
 """
 
+import os
 import json
 import base64
 from typing import List, Tuple, Optional
@@ -14,7 +15,8 @@ from config import (
     CLAUDE_DISABLE_EXPERIMENTAL_BETAS,
     CLAUDE_COMPUTER_TOOL_TYPE,
     CLAUDE_COMPUTER_BETAS,
-    CLAUDE_USE_GATEWAY
+    CLAUDE_USE_GATEWAY,
+    resolve_computer_config
 )
 
 
@@ -41,7 +43,6 @@ class ClaudeInteraction:
         self.id = id
         self.steps = steps
         self.usage = usage or {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-
 
 class ClaudeAgent:
     """Claude AI 代理封裝類別，對齊 GeminiAgent 介面"""
@@ -73,9 +74,15 @@ class ClaudeAgent:
         self.role = role or "default"
         self.behavior = behavior or "careful"
         self.output_format = output_format or "natural"
-        # 預設使用支援 Computer Use 的最新 Claude 3.5 Sonnet 模型
-        self.model = model or "claude-3-5-sonnet-20241022"
+        # 預設使用支援 Computer Use 的最新 Claude 5 Sonnet 模型
+        self.model = model or "claude-sonnet-5"
         self.messages = []
+        
+    def _get_computer_config(self) -> tuple[str, str]:
+        """
+        根據當前模型版本 (self.model) 與環境變數設定，動態解析並回傳對應的 (tool_type, beta_header)。
+        """
+        return resolve_computer_config(self.model)
         
     def generate_quick_response(self, prompt: str) -> str:
         """
@@ -225,9 +232,8 @@ class ClaudeAgent:
         })
         
         system_prompt = self._build_system_prompt()
-        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [CLAUDE_COMPUTER_BETAS]
-        if "4-5" in self.model and CLAUDE_COMPUTER_TOOL_TYPE == "computer_20251124":
-            betas = ["computer-use-2025-01-24"]
+        _, resolved_beta = self._get_computer_config()
+        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [resolved_beta]
 
         response = self.client.beta.messages.create(
             model=self.model,
@@ -357,24 +363,27 @@ class ClaudeAgent:
         system_prompt = self._build_system_prompt()
         
         # 自動根據模型或自訂配置調整 tool type 與 beta header
-        tool_type = CLAUDE_COMPUTER_TOOL_TYPE
-        beta_header = CLAUDE_COMPUTER_BETAS
-        
-        # 如果模型為 claude-sonnet-4-5 且未使用自訂設定，自動 fallback 到官方支援的 20250124 版本
-        if "4-5" in self.model and CLAUDE_COMPUTER_TOOL_TYPE == "computer_20251124":
-            tool_type = "computer_20250124"
-            beta_header = "computer-use-2025-01-24"
+        tool_type, beta_header = self._get_computer_config()
 
         # 配置 Anthropic 預設的 Computer Use 工具
         # 為了使運作與截圖精確匹配，寬度設為 1024，高度設為 768
-        tools = [
-            {
+        if "toolset" in tool_type:
+            # 對於 computer_toolset 類型的工具集（例如 computer_toolset_20260801），Anthropic API 規定不接受 name、display_width_px、display_height_px 或 display_number 等欄位，僅需傳入 type
+            computer_tool = {
+                "type": tool_type,
+            }
+        else:
+            # 對於非 toolset 的獨立 computer 工具類型（例如 computer_20241022、computer_20250124），需要指定 name="computer" 並提供 display_* 參數以匹配瀏覽器視窗大小
+            computer_tool = {
                 "type": tool_type,
                 "name": "computer",
                 "display_width_px": 1024,
                 "display_height_px": 768,
                 "display_number": 1,
-            },
+            }
+            
+        tools = [
+            computer_tool,
             {
                 "name": "navigate",
                 "description": "Directly navigate to a specific URL in the browser (e.g. 'http://localhost:8000/'). Use this tool when you get lost, navigate to a wrong page, or need to return to the home page.",
@@ -596,10 +605,8 @@ class ClaudeAgent:
         ]
         
         # 取得與主對話相同的 beta header 配置，確保自訂閘道代理能成功進行路由分發
-        beta_header = CLAUDE_COMPUTER_BETAS
-        if "-20241022" in self.model or "sonnet" in self.model.lower():
-            beta_header = "computer-use-2025-01-24"
-        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [beta_header]
+        _, resolved_beta = self._get_computer_config()
+        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [resolved_beta]
 
         response = self.client.beta.messages.create(
             model=self.model,
@@ -628,3 +635,71 @@ class ClaudeAgent:
                 "total": total_tokens
             }
         }
+
+
+def get_function_responses(
+    page, 
+    results: List[Tuple[str, str, dict]], 
+    interaction=None
+) -> List[dict]:
+    """
+    將執行結果轉換為 Claude/Gemini API 可接受的回應格式
+    包含當前頁面截圖和執行狀態
+    """
+    # 擷取當前頁面截圖
+    screenshot_bytes = page.screenshot(type="png")
+    current_url = page.url
+    
+    # 檢查是否需要安全確認
+    needs_safety = False
+    if interaction and getattr(interaction, "steps", None):
+        # 遍歷步驟，檢查是否有 function_call 包含 safety_decision
+        for step in reversed(interaction.steps):
+            if step.type == "function_call":
+                # 1. 檢查 step 屬性是否包含 safety_decision
+                if getattr(step, "safety_decision", None) is not None:
+                    needs_safety = True
+                    break
+                # 2. 檢查 arguments 中是否包含 safety_decision
+                args = getattr(step, "arguments", None)
+                if args:
+                    if isinstance(args, dict):
+                        if "safety_decision" in args:
+                            needs_safety = True
+                            break
+                    else:
+                        if getattr(args, "safety_decision", None) is not None:
+                            needs_safety = True
+                            break
+    
+    function_responses = []
+    
+    for name, call_id, result in results:
+        final_result = {"url": current_url, **result}
+        if needs_safety:
+            final_result["safety_acknowledgement"] = True
+            
+        result_blocks = [
+            {
+                "type": "text",
+                # 將結果序列化為 JSON，包含當前網址與安全認證
+                "text": json.dumps(final_result)
+            },
+            {
+                "type": "image",
+                # 將截圖編碼為 base64 字串
+                "data": base64.b64encode(screenshot_bytes).decode("utf-8"),
+                "mime_type": "image/png"
+            }
+        ]
+            
+        # 為每個執行的函數建立回應
+        function_responses.append({
+            "type": "function_result",
+            "name": name,
+            "call_id": call_id,
+            "result": result_blocks
+        })
+    
+    return function_responses
+

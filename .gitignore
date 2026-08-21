@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 
 # Local secrets
+config_llm.py
 config_local.py
 .env
 

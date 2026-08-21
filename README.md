@@ -70,10 +70,9 @@ ASACC 是一款結合 **Playwright 自動化爬蟲、網站地圖（Sitemap）�
    ```
 
 3. **填寫 API 金鑰**：
-   - 在專案根目錄下，將 `config_local.example.py` 複製並重新命名為 **`config_local.py`**。
+   - 在專案根目錄下，將 `config_llm.example.py` 複製並重新命名為 **`config_llm.py`**。
    - 用文字編輯器打開它，填入您的金鑰：
      ```python
-     GEMINI_API_KEY = "你的_Gemini_API_Key"
      CLAUDE_API_KEY = "你的_Claude_API_Key"
      ```
 

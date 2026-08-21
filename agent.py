@@ -125,15 +125,14 @@ def restructure_sitemap_hierarchy(nodes: dict) -> dict:
 
 
 from config import (
-    GEMINI_API_KEY, CLAUDE_API_KEY,
+    CLAUDE_API_KEY,
     SCREEN_WIDTH, SCREEN_HEIGHT, MAX_TURNS, HEADLESS,
     RESULT_OBSERVATION_TIME, MODEL_NAME, DEFAULT_TASK,
     INITIAL_URL, AI_ROLE, AI_BEHAVIOR, OUTPUT_FORMAT,
     TOOL_TYPE, TOOL_ENVIRONMENT, ENABLE_PROMPT_INJECTION_DETECTION,
     MAX_CRAWL_PAGES, MAX_LOGIN_TURNS
 )
-from gemini_client import GeminiAgent, get_function_responses
-from claude_client import ClaudeAgent
+from claude_client import ClaudeAgent, get_function_responses
 from browser_actions import execute_function_calls, run_axe_audit, scan_focus_path
 
 
@@ -677,12 +676,12 @@ def perform_ai_login_phase(page, model_name, username, password):
     print(f"  - 帳號: {username}")
     
     is_claude = model_name.lower().startswith("claude-")
+    from claude_client import ClaudeAgent
     if is_claude:
-        from claude_client import ClaudeAgent
         agent = ClaudeAgent(role="default", behavior="careful", output_format="natural", model=model_name)
     else:
-        from gemini_client import GeminiAgent
-        agent = GeminiAgent(role="default", behavior="careful", output_format="natural", model=model_name)
+        print(f"[WARNING] 偵測到非 Claude 模型 '{model_name}'，已自動轉為使用預設 Claude 代理。")
+        agent = ClaudeAgent(role="default", behavior="careful", output_format="natural", model="claude-3-5-sonnet-20241022")
         
     login_prompt = (
         f"請登入此網站（備用帳號為 '{username}'，密碼為 '{password}'）。\n"
@@ -1478,7 +1477,7 @@ def main():
         print(f"  原因說明：{axe_reason}")
         print("="*60)
         print("[*] 啟動本地自動化無障礙檢測引擎...")
-        
+        record_dir = None
         playwright = sync_playwright().start()
         browser = playwright.chromium.launch(headless=args.headless)
         context = browser.new_context(
@@ -1707,7 +1706,7 @@ def main():
 
             # 進行 AI 智慧診斷與評估
             is_claude = args.model.lower().startswith("claude-")
-            has_key = CLAUDE_API_KEY if is_claude else GEMINI_API_KEY
+            has_key = CLAUDE_API_KEY
             
             if has_key:
                 print("\n[AI] 正在將本地檢測結果遞交給 AI 進行智慧診斷與評估...")
@@ -1755,7 +1754,8 @@ def main():
                     if is_claude:
                         ai_agent = ClaudeAgent(role=args.role, behavior=args.behavior, output_format=args.output, model=args.model)
                     else:
-                        ai_agent = GeminiAgent(role=args.role, behavior=args.behavior, output_format=args.output, model=args.model)
+                        print(f"[WARNING] 偵測到非 Claude 模型 '{args.model}'，將使用預設 Claude 代理進行智慧診斷。")
+                        ai_agent = ClaudeAgent(role=args.role, behavior=args.behavior, output_format=args.output, model="claude-3-5-sonnet-20241022")
                     
                     ai_response = ai_agent.diagnose_static_audit(target_url, ai_data_text, screenshot_bytes, wcag_guideline=args.wcag)
                     ai_text = ai_response["text"]
@@ -1815,38 +1815,29 @@ def main():
     is_claude = args.model.lower().startswith("claude-")
     
     # 檢查 API 金鑰
-    if is_claude:
-        if not CLAUDE_API_KEY:
-            print("[ERROR] CLAUDE_API_KEY not found")
-            print("[INFO] Set with: $env:CLAUDE_API_KEY = 'your-api-key'")
-            print("[INFO] Or create config_local.py with: CLAUDE_API_KEY = 'your-api-key'")
-            return
-    else:
-        if not GEMINI_API_KEY:
-            print("[ERROR] GEMINI_API_KEY not found")
-            print("[INFO] Set with: $env:GEMINI_API_KEY = 'your-api-key'")
-            print("[INFO] Or create config_local.py with: GEMINI_API_KEY = 'your-api-key'")
-            return
+    if not CLAUDE_API_KEY:
+        print("[ERROR] CLAUDE_API_KEY not found")
+        print("[INFO] Set with: $env:CLAUDE_API_KEY = 'your-api-key'")
+        print("[INFO] Or create config_llm.py with: CLAUDE_API_KEY = 'your-api-key'")
+        return
+        
+    # 提醒非 Claude 模型的使用
+    if not is_claude:
+        print(f"[WARNING] 偵測到非 Claude 模型 '{args.model}'，將使用預設 Claude 代理。")
+        args.model = "claude-3-5-sonnet-20241022"
+        is_claude = True
     
     # 初始化 AI 代理
-    if is_claude:
-        agent = ClaudeAgent(
-            role=args.role,
-            behavior=args.behavior,
-            output_format=args.output,
-            model=args.model
-        )
-    else:
-        agent = GeminiAgent(
-            role=args.role,
-            behavior=args.behavior,
-            output_format=args.output,
-            model=args.model
-        )
+    agent = ClaudeAgent(
+        role=args.role,
+        behavior=args.behavior,
+        output_format=args.output,
+        model=args.model
+    )
     
     # 啟動瀏覽器
     print("=" * 60)
-    print(f"[{'CLAUDE' if is_claude else 'GEMINI'}-AGENT] Playwright Automation System")
+    print(f"[CLAUDE-AGENT] Playwright Automation System")
     print("=" * 60)
     print(f"\n[TASK]   {user_task}")
     print(f"[MODEL]  {args.model}")

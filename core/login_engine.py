@@ -14,12 +14,12 @@ def perform_ai_login_phase(page, model_name: str, username: str, password: str) 
     # 根據模型類型實體化 AI 代理
     is_claude = model_name.lower().startswith("claude-")
     try:
+        from claude_client import ClaudeAgent
         if is_claude:
-            from claude_client import ClaudeAgent
             agent = ClaudeAgent(model=model_name)
         else:
-            from gemini_client import GeminiAgent
-            agent = GeminiAgent(model=model_name)
+            print(f"[AI LOGIN] [WARNING] 偵測到非 Claude 模型 '{model_name}'，已自動轉為使用預設 Claude 代理。")
+            agent = ClaudeAgent(model="claude-3-5-sonnet-20241022")
     except Exception as e:
         print(f"[AI LOGIN] [WARNING] 無法實體化 AI 模型 ({model_name}): {e}，跳過預登入階段。")
         return {"input": 0, "output": 0, "total": 0, "success": False}
@@ -67,7 +67,7 @@ def perform_ai_login_phase(page, model_name: str, username: str, password: str) 
 
         screenshot_bytes = page.screenshot(type="png")
         from browser_actions import scan_focus_path, execute_function_calls
-        from gemini_client import get_function_responses  # 正確導入位置
+        from claude_client import get_function_responses  # 正確導入位置
         from agent import get_interaction_tokens
         
         focus_map = scan_focus_path(page)

@@ -4,57 +4,49 @@
 """
 
 import os
+import json
 
 # ========================================
 # API Key 配置
 # ========================================
 
-# Gemini API Key
-# 建議使用環境變數 GEMINI_API_KEY，或建立不提交的 config_local.py 覆蓋此值。
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", os.getenv("ANTHROPIC_API_KEY", "")).strip()
 CLAUDE_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "").strip()
 CLAUDE_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "").strip()
 CLAUDE_DISABLE_EXPERIMENTAL_BETAS = os.getenv("CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS", "").strip()
 CLAUDE_USE_GATEWAY = os.getenv("CLAUDE_USE_GATEWAY", "False").strip().lower() in ("true", "1")
 
-try:
-    from config_local import GEMINI_API_KEY as LOCAL_GEMINI_API_KEY
-    if LOCAL_GEMINI_API_KEY:
-        GEMINI_API_KEY = LOCAL_GEMINI_API_KEY.strip()
-except ImportError:
-    pass
 
 try:
-    from config_local import CLAUDE_API_KEY as LOCAL_CLAUDE_API_KEY
+    from config_llm import CLAUDE_API_KEY as LOCAL_CLAUDE_API_KEY  # type: ignore
     if LOCAL_CLAUDE_API_KEY:
         CLAUDE_API_KEY = LOCAL_CLAUDE_API_KEY.strip()
 except ImportError:
     pass
 
 try:
-    from config_local import CLAUDE_BASE_URL as LOCAL_CLAUDE_BASE_URL
+    from config_llm import CLAUDE_BASE_URL as LOCAL_CLAUDE_BASE_URL  # type: ignore
     if LOCAL_CLAUDE_BASE_URL:
         CLAUDE_BASE_URL = LOCAL_CLAUDE_BASE_URL.strip()
 except ImportError:
     pass
 
 try:
-    from config_local import CLAUDE_AUTH_TOKEN as LOCAL_CLAUDE_AUTH_TOKEN
+    from config_llm import CLAUDE_AUTH_TOKEN as LOCAL_CLAUDE_AUTH_TOKEN  # type: ignore
     if LOCAL_CLAUDE_AUTH_TOKEN:
         CLAUDE_AUTH_TOKEN = LOCAL_CLAUDE_AUTH_TOKEN.strip()
 except ImportError:
     pass
 
 try:
-    from config_local import CLAUDE_DISABLE_EXPERIMENTAL_BETAS as LOCAL_CLAUDE_DISABLE
+    from config_llm import CLAUDE_DISABLE_EXPERIMENTAL_BETAS as LOCAL_CLAUDE_DISABLE  # type: ignore
     if LOCAL_CLAUDE_DISABLE:
         CLAUDE_DISABLE_EXPERIMENTAL_BETAS = LOCAL_CLAUDE_DISABLE.strip()
 except ImportError:
     pass
 
 try:
-    from config_local import CLAUDE_USE_GATEWAY as LOCAL_CLAUDE_USE_GATEWAY
+    from config_llm import CLAUDE_USE_GATEWAY as LOCAL_CLAUDE_USE_GATEWAY  # type: ignore
     if LOCAL_CLAUDE_USE_GATEWAY is not None:
         if isinstance(LOCAL_CLAUDE_USE_GATEWAY, str):
             CLAUDE_USE_GATEWAY = LOCAL_CLAUDE_USE_GATEWAY.strip().lower() in ("true", "1")
@@ -63,18 +55,18 @@ try:
 except ImportError:
     pass
 
-CLAUDE_COMPUTER_TOOL_TYPE = os.getenv("CLAUDE_COMPUTER_TOOL_TYPE", "computer_20251124").strip()
-CLAUDE_COMPUTER_BETAS = os.getenv("CLAUDE_COMPUTER_BETAS", "computer-use-2025-11-24").strip()
+CLAUDE_COMPUTER_TOOL_TYPE = os.getenv("CLAUDE_COMPUTER_TOOL_TYPE", "computer_toolset_20260801").strip()
+CLAUDE_COMPUTER_BETAS = os.getenv("CLAUDE_COMPUTER_BETAS", "computer-use-2026-08-01").strip()
 
 try:
-    from config_local import CLAUDE_COMPUTER_TOOL_TYPE as LOCAL_TOOL_TYPE
+    from config_llm import CLAUDE_COMPUTER_TOOL_TYPE as LOCAL_TOOL_TYPE  # type: ignore
     if LOCAL_TOOL_TYPE:
         CLAUDE_COMPUTER_TOOL_TYPE = LOCAL_TOOL_TYPE.strip()
 except ImportError:
     pass
 
 try:
-    from config_local import CLAUDE_COMPUTER_BETAS as LOCAL_BETAS
+    from config_llm import CLAUDE_COMPUTER_BETAS as LOCAL_BETAS  # type: ignore
     if LOCAL_BETAS:
         CLAUDE_COMPUTER_BETAS = LOCAL_BETAS.strip()
 except ImportError:
@@ -88,14 +80,14 @@ AUTO_LOGIN_USERNAME = os.getenv("AUTO_LOGIN_USERNAME", "").strip()
 AUTO_LOGIN_PASSWORD = os.getenv("AUTO_LOGIN_PASSWORD", "").strip()
 
 try:
-    from config_local import AUTO_LOGIN_USERNAME as LOCAL_AUTO_LOGIN_USERNAME
+    from config_llm import AUTO_LOGIN_USERNAME as LOCAL_AUTO_LOGIN_USERNAME  # type: ignore
     if LOCAL_AUTO_LOGIN_USERNAME:
         AUTO_LOGIN_USERNAME = LOCAL_AUTO_LOGIN_USERNAME.strip()
 except ImportError:
     pass
 
 try:
-    from config_local import AUTO_LOGIN_PASSWORD as LOCAL_AUTO_LOGIN_PASSWORD
+    from config_llm import AUTO_LOGIN_PASSWORD as LOCAL_AUTO_LOGIN_PASSWORD  # type: ignore
     if LOCAL_AUTO_LOGIN_PASSWORD:
         AUTO_LOGIN_PASSWORD = LOCAL_AUTO_LOGIN_PASSWORD.strip()
 except ImportError:
@@ -120,10 +112,9 @@ HEADLESS = False
 # ========================================
 
 # AI 模型名稱（預設值，可透過命令列參數覆蓋）
-MODEL_NAME = 'gemini-2.5-computer-use-preview-10-2025'
-#  MODEL_NAME = 'gemini-3.5'
+MODEL_NAME = 'claude-sonnet-5'
 
-# Gemini API 工具類型
+# Claude API 工具類型
 TOOL_TYPE = "computer_use"
 
 # 工具環境
@@ -214,3 +205,26 @@ if os.path.exists(CONFIG_ADVANCED_PATH):
             PAGE_LOAD_TIMEOUT = int(adv_config["PAGE_LOAD_TIMEOUT"])
     except Exception as e:
         print(f"[WARNING] 載入 config_advanced.json 失敗: {e}")
+
+
+def resolve_computer_config(model: str) -> tuple[str, str]:
+    """
+    根據模型名稱與環境變數，動態解析並回傳對應的 (tool_type, beta_header)。
+    此處獨立定義以防 GUI 在無法載入 Anthropic 模組時無法進行版本資訊解析。
+    """
+    # 預設使用 config 中的變數值
+    tool_type = CLAUDE_COMPUTER_TOOL_TYPE
+    beta_header = CLAUDE_COMPUTER_BETAS
+    
+    if "claude-sonnet-5" in model:
+        # 對於 claude-sonnet-5 模型，若無環境變數手動覆蓋，預設採用 computer_toolset_20260801 工具集與 computer-use-2026-08-01 的 API 協定
+        if not os.getenv("CLAUDE_COMPUTER_TOOL_TYPE"):
+            tool_type = "computer_toolset_20260801"
+        if not os.getenv("CLAUDE_COMPUTER_BETAS"):
+            beta_header = "computer-use-2026-08-01"
+    elif "-20241022" in model or "claude-3-5-sonnet" in model.lower():
+        # 對於 claude-3-5-sonnet 系列模型，若無環境變數手動覆蓋，預設採用 computer-use-2025-01-24 協定
+        if not os.getenv("CLAUDE_COMPUTER_BETAS"):
+            beta_header = "computer-use-2025-01-24"
+            
+    return tool_type, beta_header

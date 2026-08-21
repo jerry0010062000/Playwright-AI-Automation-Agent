@@ -2,8 +2,8 @@
   "base_path": "/html",
   "total_pages": 173,
   "target_url": "http://192.168.2.1",
-  "default_username": "",
-  "default_password": "",
+  "default_username": "admin",
+  "default_password": "admin",
   "scan_languages": [
     "de"
   ],
@@ -8101,5 +8101,15 @@
       "initialized_at": "2026-07-22 15:52:34"
     }
   },
-  "last_verified": "2026-07-22 15:52:34"
+  "last_verified": "2026-07-22 15:52:34",
+  "main_task": "探索與初始化網站地圖 (Explore & Initialize Sitemap)",
+  "page_path": "",
+  "wcag_sel": "None (不執行特定 WCAG 檢測)",
+  "use_custom_model": false,
+  "custom_model": "claude-5-sonnet-20260801",
+  "model": "claude-sonnet-4-5",
+  "device": "desktop",
+  "max_turns": 30,
+  "headless": true,
+  "record": true
 }

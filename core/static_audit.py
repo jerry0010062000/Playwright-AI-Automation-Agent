@@ -298,12 +298,12 @@ def check_task_suitability_for_axe(task: str, extra_instructions: str, model: st
     )
     
     try:
+        from claude_client import ClaudeAgent
         if model.lower().startswith("claude-"):
-            from claude_client import ClaudeAgent
             agent = ClaudeAgent(model=model)
         else:
-            from gemini_client import GeminiAgent
-            agent = GeminiAgent(model=model)
+            print(f"[WARNING] 偵測到非 Claude 模型 '{model}'，已自動轉為使用預設 Claude 代理。")
+            agent = ClaudeAgent(model="claude-3-5-sonnet-20241022")
             
         res = agent.generate_quick_response(prompt)
         start_idx = res.find("{")

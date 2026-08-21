@@ -264,10 +264,10 @@ class WCAGAgentGUI:
         subtitle_label = tk.Label(header_frame, text="本地無障礙全站巡檢 & AI 互動檢測控制台", bg=BG_COLOR, fg="#858585", font=("Segoe UI", 10))
         subtitle_label.pack(side=tk.LEFT, padx=15, pady=5)
         
-        # 本地配置設定按鈕 (敏感憑證)
-        config_btn = tk.Button(header_frame, text="⚙️ 本地配置設定 (Local Config)", bg=BTN_BG, fg=TEXT_COLOR, 
+        # LLM配置設定按鈕 (敏感憑證)
+        config_btn = tk.Button(header_frame, text="⚙️ LLM配置設定 (LLM Config)", bg=BTN_BG, fg=TEXT_COLOR, 
                                activebackground=BTN_HOVER, activeforeground=TEXT_COLOR, 
-                               font=("Segoe UI", 10, "bold"), relief="flat", bd=0, command=self.open_local_config_window)
+                               font=("Segoe UI", 10, "bold"), relief="flat", bd=0, command=self.open_llm_config_window)
         config_btn.pack(side=tk.RIGHT, padx=5, ipady=4, ipadx=10)
 
         # 進階參數設定按鈕 (行為參數)
@@ -499,17 +499,13 @@ class WCAGAgentGUI:
         tk.Label(self.secondary_container, text="計費與決策 AI 模型 (Model):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(5, 3))
         model_options = [
             "--- Anthropic (Claude) ---",
-            "claude-sonnet-4-5 (預設)",
+            "claude-sonnet-5 (預設)",
             "claude-opus-4-8",
-            "claude-haiku-4-5",
-            "--- Google (Gemini) ---",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite"
+            "claude-haiku-4-5"
         ]
         self.model_combo = ttk.Combobox(self.secondary_container, values=model_options, state="readonly", style="TCombobox")
         self.model_combo.pack(fill=tk.X, pady=(0, 5))
-        self.model_combo.current(1)  # 預設指向 claude-sonnet-4-5 (預設)
+        self.model_combo.current(1)  # 預設指向 claude-5-sonnet-20260801 (預設)
         self.last_valid_model_index = 1
         
         # 監聽選擇，如果是分隔欄位則自動恢復上次選擇
@@ -534,7 +530,7 @@ class WCAGAgentGUI:
                                            highlightthickness=1, highlightbackground=BORDER_COLOR, highlightcolor=ACCENT_COLOR,
                                            font=("Segoe UI", 10), bd=0)
         self.custom_model_entry.pack(fill=tk.X, ipady=3, pady=(0, 10))
-        self.custom_model_entry.insert(0, "claude-3-5-sonnet-20241022")
+        self.custom_model_entry.insert(0, "claude-sonnet-5")
 
         # 5. 模擬裝置型態
         tk.Label(self.secondary_container, text="瀏覽器視窗模擬 (Device Viewport):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(5, 3))
@@ -774,10 +770,10 @@ class WCAGAgentGUI:
         """輸出歡迎橫幅"""
         self.append_log(self.get_welcome_banner())
 
-    def open_local_config_window(self):
-        """開啟獨立的本地配置編輯視窗 (Modal Toplevel Window)"""
+    def open_llm_config_window(self):
+        """開啟獨立的LLM配置編輯視窗 (Modal Toplevel Window)"""
         config_win = tk.Toplevel(self.root)
-        config_win.title("⚙️ 本地配置設定 (config_local.py)")
+        config_win.title("⚙️ LLM配置設定 (config_llm.py)")
         config_win.geometry("540x520")
         config_win.configure(bg=PANEL_BG)
         config_win.transient(self.root)  # 設為父視窗的子視窗
@@ -789,9 +785,9 @@ class WCAGAgentGUI:
         config_win.geometry(f"+{parent_x + 280}+{parent_y + 110}")
         
         # 頂部文字標題
-        tk.Label(config_win, text="⚙️ 編輯本地私密配置 (Local Config)", bg=PANEL_BG, fg=HEADING_COLOR, 
+        tk.Label(config_win, text="⚙️ 編輯LLM私密配置 (LLM Config)", bg=PANEL_BG, fg=HEADING_COLOR, 
                  font=("Segoe UI", 12, "bold")).pack(anchor=tk.W, padx=25, pady=(20, 5))
-        tk.Label(config_win, text="以下設定將儲存至 config_local.py。此檔案已列入 .gitignore，不會上傳公開庫。", 
+        tk.Label(config_win, text="以下設定將儲存至 config_llm.py。此檔案已列入 .gitignore，不會上傳公開庫。", 
                  bg=PANEL_BG, fg="#858585", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=25, pady=(0, 15))
         
         # 欄位內容容器
@@ -800,7 +796,6 @@ class WCAGAgentGUI:
         
         # 動態載入 config 模組屬性值
         import config
-        curr_gemini = getattr(config, "GEMINI_API_KEY", "")
         curr_claude = getattr(config, "CLAUDE_API_KEY", "")
         curr_url = getattr(config, "CLAUDE_BASE_URL", "")
         curr_token = getattr(config, "CLAUDE_AUTH_TOKEN", "")
@@ -853,7 +848,6 @@ class WCAGAgentGUI:
                     entry.config(show="*")
                     eye_btn.config(command=lambda e=entry, b=eye_btn: toggle_visibility(e, b))
                 
-        add_field("Gemini API Key:", "GEMINI_API_KEY", curr_gemini, is_password=True)
         add_field("Claude API Key:", "CLAUDE_API_KEY", curr_claude, is_password=True)
         add_field("啟用 Claude 代理閘道 (Proxy):", "CLAUDE_USE_GATEWAY", curr_use_gateway, is_checkbox=True)
         add_field("Claude Base URL (Proxy):", "CLAUDE_BASE_URL", curr_url)
@@ -865,7 +859,6 @@ class WCAGAgentGUI:
         btn_frame.pack(fill=tk.X, pady=(15, 20), padx=25)
         
         def save_config():
-            gemini_key = fields["GEMINI_API_KEY"].get().strip()
             claude_key = fields["CLAUDE_API_KEY"].get().strip()
             claude_url = fields["CLAUDE_BASE_URL"].get().strip()
             claude_token = fields["CLAUDE_AUTH_TOKEN"].get().strip()
@@ -878,9 +871,8 @@ class WCAGAgentGUI:
             claude_disable = "0" if claude_enable == "1" else "1"
             
             try:
-                # 寫入 config_local.py 存檔
-                with open("config_local.py", "w", encoding="utf-8") as f:
-                    f.write(f'GEMINI_API_KEY = "{gemini_key}"\n')
+                # 寫入 config_llm.py 存檔
+                with open("config_llm.py", "w", encoding="utf-8") as f:
                     f.write(f'CLAUDE_API_KEY = "{claude_key}"\n')
                     f.write(f'CLAUDE_USE_GATEWAY = {claude_use_gateway == "1"}\n')
                     f.write(f'CLAUDE_BASE_URL = "{claude_url}"\n')
@@ -891,15 +883,18 @@ class WCAGAgentGUI:
                 
                 # 重新載入 config 與 AI 代理模組，確保本次運作中立即生效
                 import importlib
+                import sys
                 import config
                 import claude_client
                 import gemini_client
                 
+                if "config_llm" in sys.modules:
+                    importlib.reload(sys.modules["config_llm"])
                 importlib.reload(config)
                 importlib.reload(claude_client)
                 importlib.reload(gemini_client)
                 
-                messagebox.showinfo("成功", "配置已寫入 config_local.py，並且已在當前運行環境中即時生效！", parent=config_win)
+                messagebox.showinfo("成功", "配置已寫入 config_llm.py，並且已在當前運行環境中即時生效！", parent=config_win)
                 config_win.destroy()
             except Exception as e:
                 messagebox.showerror("錯誤", f"儲存配置文件失敗: {e}", parent=config_win)
@@ -1902,6 +1897,8 @@ class WCAGAgentGUI:
             return
 
         # 解析 Model
+        tool_type_env = None
+        beta_header_env = None
         if self.use_custom_model_var.get():
             model_val = self.custom_model_entry.get().strip()
             if not model_val:
@@ -1909,7 +1906,12 @@ class WCAGAgentGUI:
                 return
         else:
             model_sel = self.model_combo.get()
-            model_val = model_sel.split(" ")[0].strip()
+            if "claude-sonnet-5" in model_sel:
+                model_val = "claude-sonnet-5"
+                tool_type_env = "computer_toolset_20260801"
+                beta_header_env = "computer-use-2026-08-01"
+            else:
+                model_val = model_sel.split(" ")[0].strip()
         
         # 解析 Device
         device_val = self.device_combo.get()
@@ -1950,8 +1952,21 @@ class WCAGAgentGUI:
         
         self.clear_terminal()
         
+        # 解析確切的 Computer Use 版本參數 (用作 UI 資訊顯示)
+        resolved_tool_type = tool_type_env
+        resolved_beta_header = beta_header_env
+        if not resolved_tool_type:
+            try:
+                from config import resolve_computer_config
+                # 呼叫獨立的解析函式來查詢該模型對應的 Computer Use 版本，不需實例化客戶端
+                resolved_tool_type, resolved_beta_header = resolve_computer_config(model_val)
+            except Exception:
+                resolved_tool_type = "unknown"
+                resolved_beta_header = "unknown"
+                
         self.append_log(f"[GUI] 準備執行 Playwright AI 巡檢任務...\n")
         self.append_log(f"  - 模型: {model_val}\n")
+        self.append_log(f"  - Computer Use 模式: {resolved_tool_type} ({resolved_beta_header})\n")
         self.append_log(f"  - 目標 URL: {url}\n")
         if verify_sitemap:
             self.append_log(f"  - 任務類型: 🗺️ 探索與初始化網站地圖 (--verify-sitemap)\n")
@@ -1976,12 +1991,12 @@ class WCAGAgentGUI:
         # 啟動背景執行緒跑 Python 程序
         thread = threading.Thread(
             target=self.run_subprocess_worker, 
-            args=(task, url, wcag_val, model_val, device_val, turns_val, headless, record, sitemap_file, verify_sitemap, username_val, password_val, is_page_unit)
+            args=(task, url, wcag_val, model_val, device_val, turns_val, headless, record, sitemap_file, verify_sitemap, username_val, password_val, is_page_unit, tool_type_env, beta_header_env)
         )
         thread.daemon = True
         thread.start()
 
-    def run_subprocess_worker(self, task, url, wcag, model, device, max_turns, headless, record, sitemap_file=None, verify_sitemap=False, username=None, password=None, single_page=False):
+    def run_subprocess_worker(self, task, url, wcag, model, device, max_turns, headless, record, sitemap_file=None, verify_sitemap=False, username=None, password=None, single_page=False, tool_type=None, beta_header=None):
         """背景執行緒：呼叫 subprocess 執行 agent.py"""
         # 尋找虛擬環境中的 python 執行檔，優先使用 venv
         venv_python = os.path.join(os.getcwd(), ".venv", "Scripts", "python.exe")
@@ -1989,7 +2004,11 @@ class WCAGAgentGUI:
             # Fallback 尋找 Unix/Linux 路徑
             venv_python = os.path.join(os.getcwd(), ".venv", "bin", "python")
         
-        python_exe = venv_python if os.path.exists(venv_python) else sys.executable
+        # 透過 os.path.realpath 解析目錄連接 (Junction) 的實際短路徑，徹底避免 Windows 260 字元限制導致的 ModuleNotFoundError
+        if os.path.exists(venv_python):
+            python_exe = os.path.realpath(venv_python)
+        else:
+            python_exe = os.path.realpath(sys.executable)
         
         # 構建 Command (-u 參數啟用 unbuffered stdout，以確保即時輸出日誌)
         cmd = [python_exe, "-u", "agent.py"]
@@ -2022,6 +2041,13 @@ class WCAGAgentGUI:
         # 最後加上位置參數任務字串
         cmd.append(task)
         
+        # 準備子進程的環境變數，動態注入選擇的 Computer Use 版本
+        sub_env = os.environ.copy()
+        if tool_type:
+            sub_env["CLAUDE_COMPUTER_TOOL_TYPE"] = tool_type
+        if beta_header:
+            sub_env["CLAUDE_COMPUTER_BETAS"] = beta_header
+        
         try:
             # 啟動子進程：強制使用 UTF-8 編碼解碼，防止 Windows 預設 cp950 解碼特殊中文字元時崩潰
             self.process = subprocess.Popen(
@@ -2032,6 +2058,7 @@ class WCAGAgentGUI:
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
+                env=sub_env,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             
