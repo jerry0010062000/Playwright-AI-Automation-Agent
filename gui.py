@@ -13,20 +13,11 @@ import glob
 import random
 from reporting.single_page_report import get_page_report_relpath
 
-# ==========================================
-# 視覺主題與配色風格
-# ==========================================
-BG_COLOR = "#1e1e1e"        # VS Code 經典深灰背景
-PANEL_BG = "#252526"        # 面板卡片背景色
-BORDER_COLOR = "#3e3e42"    # 邊框灰色
-TEXT_COLOR = "#d4d4d4"      # 文字淺灰
-HEADING_COLOR = "#ffffff"   # 標題純白
-ACCENT_COLOR = "#007acc"    # 亮藍色（按鈕、高亮區）
-ACCENT_HOVER = "#1c97ea"    # 亮藍色懸停
-BTN_BG = "#2d2d30"          # 次要按鈕背景
-BTN_HOVER = "#3e3e42"       # 次要按鈕懸停
-TERM_BG = "#0c0c0c"         # 終端機純黑背景
-TERM_FG = "#cccccc"         # 終端機預設文字灰色
+from ui.theme import (
+    BG_COLOR, PANEL_BG, BORDER_COLOR, TEXT_COLOR, HEADING_COLOR,
+    ACCENT_COLOR, ACCENT_HOVER, BTN_BG, BTN_HOVER, TERM_BG, TERM_FG
+)
+
 
 class LoadingSpinner(tk.Label):
     """自訂 3D 甜甜圈 與 Doom 火焰 ASCII 渲染載入動畫，每次執行時隨機播放其中一種"""
@@ -886,13 +877,12 @@ class WCAGAgentGUI:
                 import sys
                 import config
                 import claude_client
-                import gemini_client
                 
                 if "config_llm" in sys.modules:
                     importlib.reload(sys.modules["config_llm"])
                 importlib.reload(config)
                 importlib.reload(claude_client)
-                importlib.reload(gemini_client)
+
                 
                 messagebox.showinfo("成功", "配置已寫入 config_llm.py，並且已在當前運行環境中即時生效！", parent=config_win)
                 config_win.destroy()

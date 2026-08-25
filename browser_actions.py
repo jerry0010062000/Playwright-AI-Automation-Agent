@@ -11,10 +11,10 @@ from config import ACTION_DELAY, PAGE_LOAD_TIMEOUT, INPUT_FOCUS_DELAY
 
 def execute_function_calls(interaction, page, screen_width: int, screen_height: int) -> List[Tuple[str, str, dict]]:
     """
-    執行 Gemini AI 回傳的函數呼叫（瀏覽器操作指令）
+    執行 AI 代理回傳的函數呼叫（瀏覽器操作指令）
     
     Args:
-        interaction: Gemini API 的互動回應物件
+        interaction: AI API 的互動回應物件
         page: Playwright 的頁面物件
         screen_width: 螢幕寬度
         screen_height: 螢幕高度

@@ -8107,9 +8107,9 @@
   "wcag_sel": "None (不執行特定 WCAG 檢測)",
   "use_custom_model": false,
   "custom_model": "claude-5-sonnet-20260801",
-  "model": "claude-sonnet-4-5",
+  "model": "claude-sonnet-5 (預設)",
   "device": "desktop",
   "max_turns": 30,
   "headless": true,
-  "record": true
+  "record": false
 }

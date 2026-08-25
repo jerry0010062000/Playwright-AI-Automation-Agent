@@ -18,3 +18,9 @@ scratch/
 sitemaps/*
 !sitemaps/arc-prpl-map.json
 
+# IDE and workspace settings
+.vscode/
+Automated-Sitemap-Accessibility-Control-Center.code-workspace
+
+# UI server
+ui_server/

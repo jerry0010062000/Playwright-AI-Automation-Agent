@@ -51,32 +51,44 @@ def get_wcag_conformance_level(wcag_ver: str) -> str:
     return levels.get(wcag_ver, "N/A")
 
 
+_AXE_SCRIPT_CONTENT = None
+
 def run_axe_audit(page) -> dict:
     """
-    於 Playwright 頁面上注入並執行 Axe-core 腳本進行靜態 DOM 無障礙檢測
+    於 Playwright 頁面上注入並執行本地 Axe-core 腳本進行靜態 DOM 無障礙檢測（具備記憶體快取加速）
     """
-    axe_script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "node_modules", "axe-core", "axe.min.js")
-    if not os.path.exists(axe_script_path):
-        # 備用備查目錄
-        axe_script_path = os.path.join("node_modules", "axe-core", "axe.min.js")
-        
-    if os.path.exists(axe_script_path):
-        page.add_script_tag(path=axe_script_path)
-    else:
-        # CDN 注入降級
-        page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.7.2/axe.min.js")
-        
-    axe_run_script = """
-    async () => {
-        return await axe.run({
-            runOnly: {
-                type: 'tag',
-                values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa', 'best-practice']
-            }
-        });
-    }
-    """
-    return page.evaluate(axe_run_script)
+    global _AXE_SCRIPT_CONTENT
+    has_axe = False
+    try:
+        has_axe = page.evaluate("typeof window.axe !== 'undefined'")
+    except Exception:
+        has_axe = False
+
+    if not has_axe:
+        if _AXE_SCRIPT_CONTENT is None:
+            axe_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "lib", "axe.min.js")
+            if not os.path.exists(axe_path):
+                axe_path = os.path.join("lib", "axe.min.js")
+            if not os.path.exists(axe_path):
+                raise FileNotFoundError(f"本地 Axe-core 庫未找到: {axe_path}")
+            with open(axe_path, "r", encoding="utf-8") as f:
+                _AXE_SCRIPT_CONTENT = f.read()
+
+        try:
+            page.evaluate(_AXE_SCRIPT_CONTENT)
+        except Exception:
+            try:
+                page.add_script_tag(content=_AXE_SCRIPT_CONTENT)
+            except Exception as tag_err:
+                print(f"[WARNING] 注入 Axe 腳本警告: {tag_err}")
+
+    try:
+        result = page.evaluate("async () => { return await axe.run(); }")
+        return result
+    except Exception as e:
+        print(f"[ERROR] Axe-core evaluation failed: {e}")
+        return {"violations": []}
+
 
 
 def perform_local_site_audit(page, base_url: str, wcag_ver: str, sitemap_path: str = None) -> dict:

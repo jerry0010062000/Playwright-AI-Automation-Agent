@@ -21,14 +21,14 @@ from config import (
 
 
 class ClaudeContentBlock:
-    """模擬 Gemini Content Block 結構"""
+    """Claude Content Block 結構封裝"""
     def __init__(self, text: str, type: str = "text"):
         self.text = text
         self.type = type
 
 
 class ClaudeStep:
-    """模擬 Gemini Step 結構"""
+    """Claude Step 步驟結構封裝"""
     def __init__(self, type: str, content: list = None, name: str = None, id: str = None, arguments: dict = None):
         self.type = type
         self.content = content or []
@@ -38,14 +38,15 @@ class ClaudeStep:
 
 
 class ClaudeInteraction:
-    """模擬 Gemini Interaction 回應物件"""
+    """Claude Interaction 互動作為統一回應物件"""
     def __init__(self, id: str, steps: list, usage: dict = None):
         self.id = id
         self.steps = steps
         self.usage = usage or {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
 class ClaudeAgent:
-    """Claude AI 代理封裝類別，對齊 GeminiAgent 介面"""
+    """Claude AI 代理封裝類別"""
+
     
     def __init__(
         self, 
@@ -702,4 +703,12 @@ def get_function_responses(
         })
     
     return function_responses
+
+
+def ask_claude(prompt: str, model: str = None) -> str:
+    """
+    極簡的單回合對話呼叫，供快速測試或指令碼整合使用。
+    """
+    agent = ClaudeAgent(model=model)
+    return agent.generate_quick_response(prompt)
 

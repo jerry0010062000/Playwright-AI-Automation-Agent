@@ -1,4 +1,51 @@
+import time
 from config import MAX_LOGIN_TURNS
+from core.prompt_builder import get_interaction_tokens
+
+
+def handle_auto_login(page, username: str, password: str) -> bool:
+    """
+    透過 DOM 選擇器快速嘗試在登入頁面填入帳號密碼並點擊登入
+    """
+    print("[*] 偵測到已提供登入資訊，嘗試自動填表登入...")
+    try:
+        # 1. 尋找密碼欄位
+        password_input = page.query_selector("input[type='password']")
+        if not password_input:
+            print("[WARNING] 未找到密碼欄位，跳過自動填表登入。")
+            return False
+            
+        # 2. 尋找帳號欄位
+        username_input = page.query_selector("input[type='text']:not([style*='display: none']):not([style*='visibility: hidden'])")
+        if not username_input:
+            username_input = page.query_selector("#username, #login-username, input[name='username'], input[name='user']")
+            
+        if username_input and username:
+            print(f"[*] 輸入帳號: {username}")
+            username_input.fill(username)
+            
+        print("[*] 輸入密碼...")
+        password_input.fill(password)
+        
+        # 3. 尋找並點擊登入按鈕
+        login_btn = page.query_selector("button[type='submit'], input[type='submit'], #login-btn, #login_btn, button:has-text('Login'), button:has-text('登入')")
+        if not login_btn:
+            login_btn = page.query_selector("button, input[type='button']")
+            
+        if login_btn:
+            print("[*] 點擊登入按鈕...")
+            login_btn.click()
+        else:
+            print("[*] 未找到登入按鈕，嘗試在密碼欄位發送 Enter 鍵...")
+            password_input.press("Enter")
+            
+        page.wait_for_timeout(3000)
+        print("[✓] 自動填表登入步驟完成。")
+        return True
+    except Exception as e:
+        print(f"[WARNING] 自動登入失敗: {e}")
+        return False
+
 
 def perform_ai_login_phase(page, model_name: str, username: str, password: str) -> dict:
     """
@@ -44,7 +91,7 @@ def perform_ai_login_phase(page, model_name: str, username: str, password: str) 
         login_output_tokens = 0
         login_total_tokens = 0
         
-        # DOM 探測：檢測頁面上可見輸入框數量 (分辨單欄位路由器登入頁 vs 雙欄位登入頁)
+        # DOM 探測：檢測頁面上可見輸入框數量
         single_field_hint = ""
         try:
             input_detect_script = """
@@ -67,8 +114,7 @@ def perform_ai_login_phase(page, model_name: str, username: str, password: str) 
 
         screenshot_bytes = page.screenshot(type="png")
         from browser_actions import scan_focus_path, execute_function_calls
-        from claude_client import get_function_responses  # 正確導入位置
-        from agent import get_interaction_tokens
+        from claude_client import get_function_responses
         
         focus_map = scan_focus_path(page)
         
@@ -89,7 +135,6 @@ def perform_ai_login_phase(page, model_name: str, username: str, password: str) 
         
         interaction = agent.create_initial_interaction(login_prompt, screenshot_bytes, extra_instructions)
         
-        # 紀錄初始互動 Token 消耗
         init_tokens = get_interaction_tokens(interaction)
         login_input_tokens += init_tokens["input"]
         login_output_tokens += init_tokens["output"]
@@ -112,13 +157,11 @@ def perform_ai_login_phase(page, model_name: str, username: str, password: str) 
             
             interaction = agent.continue_interaction(interaction.id, function_responses)
             
-            # 紀錄該回合 Token 消耗
             turn_tokens = get_interaction_tokens(interaction)
             login_input_tokens += turn_tokens["input"]
             login_output_tokens += turn_tokens["output"]
             login_total_tokens += turn_tokens["total"]
             
-        # 二次驗證：等待並確認是否成功跳轉/登入（密碼輸入框是否消失）
         print("[AI LOGIN] 正在等待登入跳轉並驗證狀態...")
         try:
             page.wait_for_timeout(2000)
@@ -126,7 +169,6 @@ def perform_ai_login_phase(page, model_name: str, username: str, password: str) 
         except Exception:
             pass
 
-        # 檢測密碼欄位是否仍然存在且可見，如果存在代表可能登入失敗
         is_still_login_page = False
         try:
             pw_field = page.query_selector("input[type='password']")
