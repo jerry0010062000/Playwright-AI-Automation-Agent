@@ -68,12 +68,12 @@ def generate_master_site_report(sitemap_path: str, output_report_path: str):
                 dynamic_verified += 1
                 
         master_content = (
-            f"# 📊 網站全站無障礙巡檢 Master 總結報告\n\n"
+            f"# 網站全站無障礙巡檢 Master 總結報告\n\n"
             f"- **採用 Sitemap**: `{sitemap_path}`\n"
             f"- **全站已知總頁數**: `{total_nodes}` 頁\n"
             f"- **已完成靜態校對頁數**: `{static_verified}` / `{total_nodes}` 頁\n"
             f"- **已完成動態 AI 校對頁數**: `{dynamic_verified}` / `{total_nodes}` 頁\n\n"
-            f"## 📋 頁面目錄與單頁報告索引\n\n"
+            f"## 頁面目錄與單頁報告索引\n\n"
             f"| 頁面相對路徑 | 標題 | 靜態校對時間 | 動態 AI 校對時間 | 單頁報告連結 |\n"
             f"| :--- | :--- | :--- | :--- | :--- |\n"
         )
@@ -82,13 +82,13 @@ def generate_master_site_report(sitemap_path: str, output_report_path: str):
             s_time = info.get("verified_at", "-")
             d_time = info.get("dynamic_verified_at", "-")
             rep_file = info.get("report_file", "")
-            rep_link = f"[📄 查看報告]({rep_file})" if rep_file else "⏳ 待探索"
+            rep_link = f"[查看報告]({rep_file})" if rep_file else "待探索"
             title = info.get("title", "N/A")
             master_content += f"| `{path}` | {title} | `{s_time}` | `{d_time}` | {rep_link} |\n"
             
         with open(output_report_path, "w", encoding="utf-8") as mf:
             mf.write(master_content)
             
-        print(f"[MASTER REPORT] 📊 成功生成全站總統計報告: {output_report_path}")
+        print(f"[MASTER REPORT] 成功生成全站總統計報告: {output_report_path}")
     except Exception as e:
         print(f"[WARNING] 產生 Master 總報告出錯: {e}")

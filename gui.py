@@ -17,147 +17,7 @@ from ui.theme import (
     BG_COLOR, PANEL_BG, BORDER_COLOR, TEXT_COLOR, HEADING_COLOR,
     ACCENT_COLOR, ACCENT_HOVER, BTN_BG, BTN_HOVER, TERM_BG, TERM_FG
 )
-
-
-class LoadingSpinner(tk.Label):
-    """自訂 3D 甜甜圈 與 Doom 火焰 ASCII 渲染載入動畫，每次執行時隨機播放其中一種"""
-    def __init__(self, parent, bg=PANEL_BG, **kwargs):
-        # 使用 Consolas 9pt 等寬字型以防對齊錯位，前景色使用明亮終端綠
-        super().__init__(parent, bg=bg, fg="#4ec9b0", font=("Consolas", 9), justify=tk.LEFT, anchor=tk.W, **kwargs)
-        self.buf_len = 44  # 適合左側面板寬度，提供更多像素細節
-        self.height = 11   # 高度 11 行
-        self.running = False
-        
-        # 動態模式選擇: "donut" 或 "fire"
-        self.anim_mode = "donut"
-        
-        # 3D 甜甜圈角度
-        self.A = 0.0
-        self.B = 0.0
-        
-        # Doom 火焰狀態
-        self.fire_chars = "   .,-~:+*#%@$M"
-        self.fire_grid = [[0] * self.buf_len for _ in range(self.height)]
-        
-        self.init_scene()
-        self.update_display()
-
-    def init_scene(self):
-        if self.anim_mode == "donut":
-            self.A = 0.0
-            self.B = 0.0
-        elif self.anim_mode == "fire":
-            self.fire_grid = [[0] * self.buf_len for _ in range(self.height)]
-
-    def start(self):
-        if not self.running:
-            self.running = True
-            # 固定使用 3D 甜甜圈動畫
-            self.anim_mode = "donut"
-            self.init_scene()
-            self.animate()
-            
-    def stop(self):
-        self.running = False
-        self.update_display()
-        
-    def animate(self):
-        if not self.running:
-            return
-        self.tick()
-        self.update_display()
-        # 40ms 一幀 (~25 FPS)
-        self.after(40, self.animate)
-        
-    def tick(self):
-        if self.anim_mode == "donut":
-            self.A += 0.07
-            self.B += 0.03
-        elif self.anim_mode == "fire":
-            self.update_fire()
-            
-    def update_fire(self):
-        max_temp = len(self.fire_chars) - 1
-        # 底部火源恆熱
-        for x in range(self.buf_len):
-            self.fire_grid[self.height - 1][x] = max_temp
-            
-        # 自下而上傳播熱量並隨機衰減
-        for y in range(1, self.height):
-            for x in range(self.buf_len):
-                src_val = self.fire_grid[y][x]
-                if src_val == 0:
-                    self.fire_grid[y - 1][x] = 0
-                else:
-                    decay = random.randint(0, 2)
-                    dst_x = (x - decay + 1) % self.buf_len
-                    dst_y = y - 1
-                    self.fire_grid[dst_y][dst_x] = max(0, src_val - decay)
-        
-    def update_display(self):
-        if not self.running:
-            # 靜止狀態下，顯示一個靜態美觀的 3D 甜甜圈
-            self.config(text=self.render_donut(0.8, 0.8))
-        else:
-            if self.anim_mode == "donut":
-                self.config(text=self.render_donut(self.A, self.B))
-            elif self.anim_mode == "fire":
-                self.config(text=self.render_fire())
-                
-    def render_fire(self):
-        output = []
-        for y in range(self.height):
-            row_chars = [self.fire_chars[self.fire_grid[y][x]] for x in range(self.buf_len)]
-            output.append("".join(row_chars))
-        return "\n".join(output)
-            
-    def render_donut(self, A, B):
-        output = [[" "] * self.buf_len for _ in range(self.height)]
-        zbuffer = [[0.0] * self.buf_len for _ in range(self.height)]
-        
-        cosA, sinA = math.cos(A), math.sin(A)
-        cosB, sinB = math.cos(B), math.sin(B)
-        
-        R1 = 1
-        R2 = 2
-        K2 = 5
-        
-        theta = 0.0
-        while theta < 6.28:
-            costheta = math.cos(theta)
-            sintheta = math.sin(theta)
-            
-            phi = 0.0
-            while phi < 6.28:
-                cosphi = math.cos(phi)
-                sinphi = math.sin(phi)
-                
-                circlex = R2 + R1 * costheta
-                circley = R1 * sintheta
-                
-                x = circlex * (cosB * cosphi + sinA * sinB * sinphi) - circley * cosA * sinB
-                y = circlex * (sinB * cosphi - sinA * cosB * sinphi) + circley * cosA * cosB
-                z = K2 + cosA * circlex * sinphi + circley * sinA
-                ooz = 1.0 / z
-                
-                xp = int(22 + 30 * ooz * x)
-                yp = int(5.5 + 11 * ooz * y)
-                
-                L = cosphi * costheta * sinB - cosA * costheta * sinphi - sinA * sintheta + cosB * (cosA * sintheta - costheta * sinA * sinphi)
-                
-                if L > 0:
-                    if 0 <= xp < self.buf_len and 0 <= yp < self.height:
-                        if ooz > zbuffer[yp][xp]:
-                            zbuffer[yp][xp] = ooz
-                            luminance_index = int(L * 8)
-                            if luminance_index > 11:
-                                luminance_index = 11
-                            chars = ".,-~:;=!*#$@"
-                            output[yp][xp] = chars[luminance_index]
-                phi += 0.07
-            theta += 0.07
-            
-        return "\n".join("".join(row) for row in output)
+from ui.animations import LoadingSpinner
 
 
 class WCAGAgentGUI:
@@ -444,7 +304,6 @@ class WCAGAgentGUI:
         self.full_wcag_options = [
             "None (不執行特定 WCAG 檢測)",
             "ALL (靜態全量 - 1.1, 1.3, 1.4, 3.1, 4.1 0-Token 推薦)",
-            "DYNAMIC_ALL (動態全量 - 2.1, 2.2, 2.4, 2.5 視覺與焦點)",
             "1.1 (靜態 - 替代文字 1.1.1)",
             "1.2 (靜態 - 時基媒體 1.2.1, 1.2.2)",
             "1.3 (靜態 - 易讀與 DOM 結構 1.3.1, 1.3.5)",
@@ -460,7 +319,6 @@ class WCAGAgentGUI:
             "4.1 (靜態 - 相容性與唯一 ID 4.1.2)"
         ]
         self.dynamic_wcag_options = [
-            "DYNAMIC_ALL (動態全量 - 2.1, 2.2, 2.4, 2.5 視覺與焦點)",
             "2.1 (動態 - 鍵盤可達與無陷阱 2.1.1, 2.1.2, 2.1.4)",
             "2.2 (動態 - 足夠時間 2.2.1)",
             "2.3 (動態 - 預防閃爍 2.3.1)",
@@ -482,6 +340,28 @@ class WCAGAgentGUI:
         self.wcag_combo.pack(fill=tk.X, pady=(0, 12))
         self.wcag_combo.current(0)  # 預設選 None
         self.wcag_combo.bind("<<ComboboxSelected>>", self.on_wcag_selected)
+
+        # 4.5 動態巡檢嚴謹度 (Audit Rigor Strategy - Dynamic)
+        self.rigor_container = tk.Frame(self.secondary_container, bg=PANEL_BG)
+        self.rigor_label = tk.Label(self.rigor_container, text="動態巡檢嚴謹度策略 (Audit Rigor Level):", bg=PANEL_BG, fg=TEXT_COLOR, font=("Segoe UI", 10))
+        self.rigor_label.pack(anchor=tk.W, pady=(5, 3))
+        
+        self.rigor_options = [
+            "Balanced (均衡推薦 - 關鍵互動驗證)",
+            "Strict (精準細緻 - 逐步稽核存證)",
+            "Fast (極速低耗 - 批次快速巡檢)"
+        ]
+        self.rigor_combo = ttk.Combobox(self.rigor_container, values=self.rigor_options, state="readonly", style="TCombobox")
+        self.rigor_combo.pack(fill=tk.X, pady=(0, 4))
+        self.rigor_combo.current(0)
+        self.rigor_combo.bind("<<ComboboxSelected>>", self.on_rigor_selected)
+        
+        self.rigor_help_label = tk.Label(
+            self.rigor_container, 
+            text="• 兼顧深度與成本：結合 Focus Map 批次走訪，僅在關鍵節點截圖\n• 預估消耗：約 8~14 回合 (節省 ~55% Tokens)", 
+            bg=PANEL_BG, fg="#9E9E9E", font=("Segoe UI", 8), justify=tk.LEFT
+        )
+        self.rigor_help_label.pack(anchor=tk.W, pady=(0, 10))
 
         # 地圖動態校對內部變數 (由主要任務選單控制)
         self.verify_sitemap_var = tk.BooleanVar(value=False)
@@ -1635,6 +1515,32 @@ class WCAGAgentGUI:
 
 
 
+    def on_rigor_selected(self, event=None):
+        """巡檢嚴謹度切換事件：動態更新優缺點註解說明"""
+        sel = self.rigor_combo.get()
+        if "Strict" in sel:
+            help_text = (
+                "• 模式特點：一步一驗證與存證截圖，完整記錄所有焦點\n"
+                "• 優點：佐證最詳盡，適合提交外部稽核報告\n"
+                "• 缺點：耗時較長，Token 消耗較大\n"
+                "• 預估消耗：約 20~30 回合 (標準消耗)"
+            )
+        elif "Fast" in sel:
+            help_text = (
+                "• 模式特點：極速批次遍歷，大量運用 JS 與連續按鍵\n"
+                "• 優點：執行最快，Token 消耗極低 (節省 ~75%)\n"
+                "• 缺點：中間視覺截圖最少，僅違規與總結時存證\n"
+                "• 預估消耗：約 4~8 回合 (極速模式)"
+            )
+        else:
+            help_text = (
+                "• 模式特點：兼顧深度與成本，結合 Focus Map 批次走訪\n"
+                "• 優點：關鍵節點深入驗證，節省 ~55% Token\n"
+                "• 缺點：中間過渡步驟截圖較少\n"
+                "• 預估消耗：約 8~14 回合 (推薦預設)"
+            )
+        self.rigor_help_label.config(text=help_text)
+
     def on_wcag_selected(self, event=None):
         """當 WCAG 章節下拉選單切換時，自動更新 AI 模型選單啟用狀態"""
         self.update_model_combo_state()
@@ -1682,11 +1588,14 @@ class WCAGAgentGUI:
         show_page = "動態單頁" in sel
         show_task = "靜態全站" not in sel
         show_wcag = "靜態全站" not in sel and "探索" not in sel
+        show_rigor = "動態單頁" in sel
         
         # 2. 先全部 pack_forget
         self.page_container.pack_forget()
         self.task_container.pack_forget()
         self.wcag_container.pack_forget()
+        if hasattr(self, "rigor_container"):
+            self.rigor_container.pack_forget()
         
         # 3. 按順序重新 pack
         # page_container 應該在 url_entry 之後
@@ -1701,6 +1610,9 @@ class WCAGAgentGUI:
         if show_wcag:
             anchor_widget = self.task_container if show_task else self.auth_row
             self.wcag_container.pack(fill=tk.X, after=anchor_widget)
+            
+        if show_rigor and hasattr(self, "rigor_container"):
+            self.rigor_container.pack(fill=tk.X, after=self.wcag_container)
 
     def on_main_task_selected(self, event=None):
         """主任務選單切換事件處置"""
@@ -1720,7 +1632,7 @@ class WCAGAgentGUI:
             self.wcag_combo.current(idx)
             self.wcag_combo.config(state="disabled")
             self.task_entry.delete("1.0", tk.END)
-            self.task_entry.insert(tk.END, "執行全站靜態 WCAG 1.1~4.1 全量無障礙審查 (0-Token 高速模式)")
+            self.task_entry.insert(tk.END, "執行全站靜態無障礙審查 (0-Token 高速模式)")
             
             help_text = (
                 "【任務定義】\n"
@@ -1737,23 +1649,18 @@ class WCAGAgentGUI:
             
         elif "動態單頁" in sel:
             self.wcag_combo["values"] = self.dynamic_wcag_options
-            idx = 0
-            for i, opt in enumerate(self.dynamic_wcag_options):
-                if opt.startswith("DYNAMIC_ALL"):
-                    idx = i
-                    break
-            self.wcag_combo.current(idx)
+            self.wcag_combo.current(0)
             self.wcag_combo.config(state="readonly")
             self.task_entry.delete("1.0", tk.END)
-            self.task_entry.insert(tk.END, "執行全站動態 WCAG 2.1/2.2/2.4/2.5 鍵盤焦點與 AI 視覺無障礙審查")
+            self.task_entry.insert(tk.END, "執行動態單頁鍵盤焦點與 AI 視覺無障礙審查")
             
             help_text = (
                 "【任務定義】\n"
                 "對指定的單一頁面進行深入的動態互動性檢測。運用 AI 視覺模擬與模擬鍵盤焦點移動，分析複雜互動組件（如彈窗、下拉選單、選單切換等）的可用性與無障礙程度。\n\n"
-                "【所含 WCAG 章節】\n"
-                "動態全量（WCAG 2.1/2.2/2.4/2.5）\n"
+                "【可選動態 WCAG 章節】\n"
                 "• 2.1 鍵盤可達性（Keyboard Accessible）\n"
                 "• 2.2 足夠時間（Enough Time）\n"
+                "• 2.3 預防閃爍（Seizures and Physical Reactions）\n"
                 "• 2.4 可導覽性與焦點可見（Navigable & Focus Visible）\n"
                 "• 2.5 輸入協助與標籤（Input Modalities）"
             )
@@ -1793,6 +1700,8 @@ class WCAGAgentGUI:
             data["main_task"] = self.main_task_combo.get()
             data["page_path"] = self.page_entry.get().strip()
             data["wcag_sel"] = self.wcag_combo.get()
+            if hasattr(self, "rigor_combo"):
+                data["rigor_level"] = self.rigor_combo.get()
             
             # AI 模型
             data["use_custom_model"] = self.use_custom_model_var.get()
@@ -1842,12 +1751,12 @@ class WCAGAgentGUI:
         if "靜態全站" in main_task_sel:
             wcag_val = "ALL"
         elif "動態單頁" in main_task_sel:
-            # 支援設置小節，從 wcag_combo 中取出前綴 (例如 DYNAMIC_ALL, 2.1 等)
+            # 支援設置小節，從 wcag_combo 中取出前綴 (例如 2.1, 2.2, 2.4 等)
             wcag_sel_prefix = wcag_sel.split(" ")[0].strip()
             if wcag_sel_prefix and not wcag_sel_prefix.startswith("None"):
                 wcag_val = wcag_sel_prefix
             else:
-                wcag_val = "DYNAMIC_ALL"
+                wcag_val = "2.1"
         elif "探索" in main_task_sel or "Explore" in main_task_sel or "Initialize" in main_task_sel:
             verify_sitemap = True
             if not task:
@@ -1954,6 +1863,15 @@ class WCAGAgentGUI:
                 resolved_tool_type = "unknown"
                 resolved_beta_header = "unknown"
                 
+        # 解析 Rigor 策略
+        rigor_sel = self.rigor_combo.get().lower() if hasattr(self, "rigor_combo") else "balanced"
+        if "strict" in rigor_sel:
+            rigor_val = "strict"
+        elif "fast" in rigor_sel:
+            rigor_val = "fast"
+        else:
+            rigor_val = "balanced"
+
         self.append_log(f"[GUI] 準備執行 Playwright AI 巡檢任務...\n")
         self.append_log(f"  - 模型: {model_val}\n")
         self.append_log(f"  - Computer Use 模式: {resolved_tool_type} ({resolved_beta_header})\n")
@@ -1963,6 +1881,7 @@ class WCAGAgentGUI:
             self.append_log(f"  - 目標地圖: {sitemap_sel if use_sitemap else '自動創建'} (若不存在則自動創建)\n")
         else:
             self.append_log(f"  - WCAG 指南: {wcag_val if wcag_val else 'None'}\n")
+            self.append_log(f"  - 巡檢策略: {rigor_val} ({self.rigor_combo.get() if hasattr(self, 'rigor_combo') else 'balanced'})\n")
             self.append_log(f"  - 網站地圖: {sitemap_sel if use_sitemap else 'None'}\n")
         self.append_log(f"  - 視窗模擬: {device_val}\n")
         self.append_log(f"  - 無頭模式: {headless}\n")
@@ -1981,12 +1900,12 @@ class WCAGAgentGUI:
         # 啟動背景執行緒跑 Python 程序
         thread = threading.Thread(
             target=self.run_subprocess_worker, 
-            args=(task, url, wcag_val, model_val, device_val, turns_val, headless, record, sitemap_file, verify_sitemap, username_val, password_val, is_page_unit, tool_type_env, beta_header_env)
+            args=(task, url, wcag_val, model_val, device_val, turns_val, headless, record, sitemap_file, verify_sitemap, username_val, password_val, is_page_unit, tool_type_env, beta_header_env, rigor_val)
         )
         thread.daemon = True
         thread.start()
 
-    def run_subprocess_worker(self, task, url, wcag, model, device, max_turns, headless, record, sitemap_file=None, verify_sitemap=False, username=None, password=None, single_page=False, tool_type=None, beta_header=None):
+    def run_subprocess_worker(self, task, url, wcag, model, device, max_turns, headless, record, sitemap_file=None, verify_sitemap=False, username=None, password=None, single_page=False, tool_type=None, beta_header=None, rigor="balanced"):
         """背景執行緒：呼叫 subprocess 執行 agent.py"""
         # 尋找虛擬環境中的 python 執行檔，優先使用 venv
         venv_python = os.path.join(os.getcwd(), ".venv", "Scripts", "python.exe")
@@ -2009,6 +1928,8 @@ class WCAGAgentGUI:
             cmd.extend(["--url", url])
         if wcag:
             cmd.extend(["--wcag", wcag])
+        if rigor:
+            cmd.extend(["--rigor", rigor])
         if device:
             cmd.extend(["-d", device])
         if max_turns:

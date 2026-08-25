@@ -63,18 +63,21 @@ def dump_single_page_settlement_report(sitemap_path: str, page_url: str, content
             try:
                 with open(report_full_path, "r", encoding="utf-8") as ef:
                     old_text = ef.read()
-                    if "## ⚡ 第一部分：靜態代碼無障礙審查" in old_text and audit_type == "dynamic":
+                    if "## 第一部分：靜態代碼無障礙審查" in old_text and audit_type == "dynamic":
+                        parts = old_text.split("## 第二部分：動態 AI")
+                        existing_static_content = parts[0]
+                    elif "## ⚡ 第一部分：靜態代碼無障礙審查" in old_text and audit_type == "dynamic":
                         parts = old_text.split("## 🤖 第二部分：動態 AI")
                         existing_static_content = parts[0]
             except Exception:
                 pass
 
         if audit_type == "static":
-            header_type_str = "⚡ 本地靜態代碼巡檢 (Static Audit)"
-            section_block = f"## ⚡ 第一部分：靜態代碼無障礙審查結果 (Static Axe-core Audit)\n- **校對時間**: `{now_str}`\n\n{content_text}\n"
+            header_type_str = "本地靜態代碼巡檢 (Static Audit)"
+            section_block = f"## 第一部分：靜態代碼無障礙審查結果 (Static Axe-core Audit)\n- **校對時間**: `{now_str}`\n\n{content_text}\n"
         elif audit_type == "dynamic":
-            header_type_str = "🤖 動態 AI 鍵盤與視覺巡檢 (Dynamic AI Audit)"
-            section_block = f"## 🤖 第二部分：動態 AI 鍵盤與視覺對照審查結果 (Dynamic AI Audit)\n- **校對時間**: `{now_str}`\n\n{content_text}\n"
+            header_type_str = "動態 AI 鍵盤與視覺巡檢 (Dynamic AI Audit)"
+            section_block = f"## 第二部分：動態 AI 鍵盤與視覺對照審查結果 (Dynamic AI Audit)\n- **校對時間**: `{now_str}`\n\n{content_text}\n"
         else:
             header_type_str = "雙模合一巡檢 (Hybrid Audit)"
             section_block = content_text
@@ -82,7 +85,7 @@ def dump_single_page_settlement_report(sitemap_path: str, page_url: str, content
         if existing_static_content and audit_type == "dynamic":
             full_md_content = existing_static_content.strip() + "\n\n---------------------------------------------------\n\n" + section_block
         else:
-            full_md_content = f"# 📝 頁面無障礙綜合巡檢報告 (Unified Page Accessibility Report)\n\n" \
+            full_md_content = f"# 頁面無障礙綜合巡檢報告 (Unified Page Accessibility Report)\n\n" \
                               f"- **頁面相對路徑**: `{target_key}`\n" \
                               f"- **完整網址**: {page_url}\n" \
                               f"- **最新更新時間**: `{now_str}`\n" \
@@ -112,6 +115,6 @@ def dump_single_page_settlement_report(sitemap_path: str, page_url: str, content
             with open(actual_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
                 
-        print(f"[PAGE SETTLEMENT] 📄 成功寫入單頁合一報告 ({audit_type}): {report_relpath}")
+        print(f"[PAGE SETTLEMENT] 成功寫入單頁合一報告 ({audit_type}): {report_relpath}")
     except Exception as e:
         print(f"[WARNING] Dump 單頁報告失敗: {e}")

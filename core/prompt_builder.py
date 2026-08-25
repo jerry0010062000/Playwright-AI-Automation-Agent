@@ -1,9 +1,13 @@
 import os
+import json
+import time
+import urllib.request
 
 # ========================================
-# 模型定價表 (USD / 1M Tokens)
+# 基準硬編碼定價表 (Base 7/7 Hardcoded Baseline)
+# 單位: USD / 1M Tokens
 # ========================================
-MODEL_PRICING = {
+BASE_7_7_PRICING = {
     # Fable & Mythos
     "claude-fable-5": {"input": 10.0, "output": 50.0},
     "claude-mythos-5": {"input": 10.0, "output": 50.0},
@@ -29,16 +33,151 @@ MODEL_PRICING = {
     "gemini-2.5-computer-use": {"input": 1.25, "output": 5.0},
     "gemini-2.5-pro": {"input": 1.25, "output": 5.0},
     "gemini-2.5-flash": {"input": 0.075, "output": 0.3},
-    # 預設
+    # 預設基準 (Base Fallback)
     "default": {"input": 3.0, "output": 15.0}
 }
+
+MODEL_PRICING = BASE_7_7_PRICING.copy()
+
+_LIVE_PRICING_CACHE = None
+_LIVE_PRICING_LOADED = False
+
+
+def fetch_live_model_pricing(cache_file: str = "records/pricing_cache.json", ttl_seconds: int = 86400, timeout: float = 2.0) -> dict:
+    """
+    動態即時定價抓取系統：
+    1. 優先檢查本地硬碟快取 (預設有效期限 24 小時)。
+    2. 若快取過期或不存在，嘗試連網向公開 Model Pricing 端點獲取最新牌價。
+    3. 若連網失敗或逾時，平滑降級 (Fall back) 至 Base 7/7 硬編碼基準定價表。
+    """
+    global _LIVE_PRICING_CACHE, _LIVE_PRICING_LOADED
+    
+    if _LIVE_PRICING_LOADED and _LIVE_PRICING_CACHE:
+        return _LIVE_PRICING_CACHE
+
+    now = time.time()
+    
+    # 1. 檢查本地快取檔
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                cache_data = json.load(f)
+                timestamp = cache_data.get("timestamp", 0)
+                prices = cache_data.get("prices", {})
+                if now - timestamp < ttl_seconds and prices:
+                    _LIVE_PRICING_CACHE = prices
+                    _LIVE_PRICING_LOADED = True
+                    return _LIVE_PRICING_CACHE
+        except Exception:
+            pass
+
+    # 2. 連網自動抓取最新牌價
+    pricing_endpoints = [
+        "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
+        "https://cdn.jsdelivr.net/gh/BerriAI/litellm@main/model_prices_and_context_window.json"
+    ]
+    
+    live_prices = {}
+    for url in pricing_endpoints:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ASACC-Pricing-Fetcher/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                if response.status == 200:
+                    raw_json = json.loads(response.read().decode("utf-8"))
+                    for m_name, meta in raw_json.items():
+                        if isinstance(meta, dict):
+                            in_cost = meta.get("input_cost_per_token")
+                            out_cost = meta.get("output_cost_per_token")
+                            if in_cost is not None and out_cost is not None:
+                                live_prices[m_name.lower()] = {
+                                    "input": round(float(in_cost) * 1_000_000, 4),
+                                    "output": round(float(out_cost) * 1_000_000, 4)
+                                }
+                    if live_prices:
+                        break
+        except Exception:
+            continue
+
+    if live_prices:
+        # 寫入本地快取檔
+        try:
+            cache_dir = os.path.dirname(cache_file)
+            if cache_dir:
+                os.makedirs(cache_dir, exist_ok=True)
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump({"timestamp": now, "prices": live_prices}, f, indent=2)
+        except Exception:
+            pass
+        _LIVE_PRICING_CACHE = live_prices
+        _LIVE_PRICING_LOADED = True
+        return _LIVE_PRICING_CACHE
+
+    # 3. 抓取失敗，回傳空字典以觸發 Fallback
+    _LIVE_PRICING_LOADED = True
+    return {}
+
+
+def resolve_model_rates(model_name: str) -> tuple[dict, str, str]:
+    """
+    動態解析模型費率，優先採用即時抓取牌價，失敗時自動 Fall back 至 Base 7/7 基準表。
+    回傳: (rates_dict, matched_model_key, source_description)
+    """
+    model_name_norm = model_name.lower().replace("-", ".").replace("_", ".")
+    
+    # 嘗試從自動抓取系統獲取
+    live_pricing = fetch_live_model_pricing()
+    if live_pricing:
+        # 精確比對
+        if model_name.lower() in live_pricing:
+            return live_pricing[model_name.lower()], model_name, "即時抓取牌價 (Live API)"
+        # 模糊比對
+        for k, rates in live_pricing.items():
+            k_norm = k.replace("-", ".").replace("_", ".")
+            if k_norm in model_name_norm or model_name_norm in k_norm:
+                return rates, k, "即時抓取牌價 (Live API)"
+
+    # Fall back 到 Base 7/7 硬編碼基準表
+    matched_key = None
+    for key in BASE_7_7_PRICING:
+        if key == "default":
+            continue
+        key_norm = key.replace("-", ".").replace("_", ".")
+        if key_norm in model_name_norm or model_name_norm in key_norm:
+            matched_key = key
+            break
+            
+    if not matched_key:
+        if "opus" in model_name_norm:
+            matched_key = "claude-3-opus"
+        elif "haiku" in model_name_norm:
+            matched_key = "claude-3-5-haiku"
+        elif "fable" in model_name_norm:
+            matched_key = "claude-fable-5"
+        elif "mythos" in model_name_norm:
+            matched_key = "claude-mythos-5"
+        elif "gemini" in model_name_norm:
+            if "flash" in model_name_norm:
+                matched_key = "gemini-2.5-flash"
+            else:
+                matched_key = "gemini-2.5-pro"
+        else:
+            matched_key = "claude-sonnet-5"
+            
+    rates = BASE_7_7_PRICING.get(matched_key, BASE_7_7_PRICING["default"])
+    return rates, matched_key, "基準定價表 (Base 7/7 Hardcoded Fallback)"
 
 
 def get_interaction_tokens(interaction) -> dict:
     """
-    統一解析 AI 互動物件中的 Token 消耗量
+    統一解析 AI 互動物件中的 Token 消耗量（包含 Prompt Caching 資訊）
     """
-    tokens = {"input": 0, "output": 0, "total": 0}
+    tokens = {
+        "input": 0,
+        "output": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "total": 0
+    }
     if not interaction:
         return tokens
         
@@ -47,6 +186,8 @@ def get_interaction_tokens(interaction) -> dict:
         u = interaction.usage
         tokens["input"] = u.get("input_tokens", 0)
         tokens["output"] = u.get("output_tokens", 0)
+        tokens["cache_creation_input_tokens"] = u.get("cache_creation_input_tokens", 0) or 0
+        tokens["cache_read_input_tokens"] = u.get("cache_read_input_tokens", 0) or 0
         tokens["total"] = u.get("total_tokens", tokens["input"] + tokens["output"])
         return tokens
 
@@ -55,65 +196,51 @@ def get_interaction_tokens(interaction) -> dict:
         u = interaction.usage
         tokens["input"] = getattr(u, "input_tokens", 0)
         tokens["output"] = getattr(u, "output_tokens", 0)
+        tokens["cache_creation_input_tokens"] = getattr(u, "cache_creation_input_tokens", 0) or 0
+        tokens["cache_read_input_tokens"] = getattr(u, "cache_read_input_tokens", 0) or 0
         tokens["total"] = getattr(u, "total_tokens", tokens["input"] + tokens["output"])
         return tokens
         
     return tokens
 
 
-def print_token_and_cost_summary(model_name: str, input_tokens: int, output_tokens: int, report_target=None):
+def print_token_and_cost_summary(model_name: str, input_tokens: int, output_tokens: int, report_target=None, cache_read_tokens: int = 0, cache_creation_tokens: int = 0):
     """
-    計算並列印 Token 消耗與花費統計，支援寫入檔案物件或附加至報告列表
+    計算並列印 Token 消耗與花費統計（含即時動態抓取 / Base 7/7 Fallback 與 Prompt Caching 節省統計）
     """
     total_tokens = input_tokens + output_tokens
     
-    model_name_norm = model_name.lower().replace("-", ".").replace("_", ".")
-    model_key = None
+    rates, model_key, pricing_source = resolve_model_rates(model_name)
     
-    # 進行標準化模糊比對
-    for key in MODEL_PRICING:
-        if key == "default":
-            continue
-        key_norm = key.replace("-", ".").replace("_", ".")
-        if key_norm in model_name_norm or model_name_norm in key_norm:
-            model_key = key
-            break
-            
-    # 概略 fallback 比對
-    if not model_key:
-        if "opus" in model_name_norm:
-            model_key = "claude-3-opus"
-        elif "haiku" in model_name_norm:
-            model_key = "claude-3-5-haiku"
-        elif "fable" in model_name_norm:
-            model_key = "claude-fable-5"
-        elif "mythos" in model_name_norm:
-            model_key = "claude-mythos-5"
-        elif "gemini" in model_name_norm:
-            if "flash" in model_name_norm:
-                model_key = "gemini-2.5-flash"
-            else:
-                model_key = "gemini-2.5-pro"
-        else:
-            model_key = "claude-sonnet-5"
-            
-    rates = MODEL_PRICING.get(model_key, MODEL_PRICING["default"])
-    usd_input_cost = (input_tokens / 1_000_000.0) * rates["input"]
+    # 快取讀取費率通常為一般輸入的 10% (節省約 90%)
+    cached_input_rate = rates["input"] * 0.1
+    uncached_inputs = max(0, input_tokens - cache_read_tokens)
+    
+    usd_input_cost = (uncached_inputs / 1_000_000.0) * rates["input"] + (cache_read_tokens / 1_000_000.0) * cached_input_rate
     usd_output_cost = (output_tokens / 1_000_000.0) * rates["output"]
     total_usd_cost = usd_input_cost + usd_output_cost
     
     EXCHANGE_RATE_TWD = 32.5
     total_twd_cost = total_usd_cost * EXCHANGE_RATE_TWD
     
+    cache_info_lines = ""
+    if cache_read_tokens > 0 or cache_creation_tokens > 0:
+        cache_info_lines = (
+            f"  快取讀取 (Prompt Cache Read) : {cache_read_tokens:,} Tokens (節省 ~90% 費率)\n"
+            f"  快取寫入 (Cache Creation)     : {cache_creation_tokens:,} Tokens\n"
+        )
+    
     token_summary = (
         f"\n{'='*60}\n"
-        f"💰 Token 消耗與花費統計 (Token Usage & Cost Summary)\n"
+        f"[Token 消耗與花費統計 (Token Usage & Cost Summary)]\n"
         f"{'='*60}\n"
         f"  輸入 Token (Input Tokens)  : {input_tokens:,}\n"
         f"  輸出 Token (Output Tokens) : {output_tokens:,}\n"
+        f"{cache_info_lines}"
         f"  總計 Token (Total Tokens)  : {total_tokens:,}\n"
         f"{'-'*60}\n"
         f"  計費模型 (Pricing Model)   : {model_key} (輸入: ${rates['input']:.2f}/M, 輸出: ${rates['output']:.2f}/M)\n"
+        f"  定價來源 (Pricing Source)  : {pricing_source}\n"
         f"  預估花費 (Estimated Cost)  : ${total_usd_cost:.5f} USD\n"
         f"  折合台幣 (Converted Cost)  : NT$ {total_twd_cost:.3f} TWD (匯率: {EXCHANGE_RATE_TWD})\n"
         f"{'='*60}\n"
@@ -121,16 +248,32 @@ def print_token_and_cost_summary(model_name: str, input_tokens: int, output_toke
     print(token_summary)
     
     if report_target is not None:
+        cache_report_md = ""
+        if cache_read_tokens > 0:
+            cache_report_md = f"- **快取讀取 Token (Cache Read)**: `{cache_read_tokens:,}` (節省成本與延遲)\n"
+            
         report_text = (
-            f"## 💰 Token 消耗與花費統計\n\n"
+            f"## Token 消耗與花費統計\n\n"
             f"- **輸入 Token 數 (Input Tokens)**: `{input_tokens:,}`\n"
             f"- **輸出 Token 數 (Output Tokens)**: `{output_tokens:,}`\n"
+            f"{cache_report_md}"
             f"- **總計 Token 數 (Total Tokens)**: `{total_tokens:,}`\n"
             f"- **計費模型 (Pricing Model)**: `{model_key}` (輸入: ${rates['input']:.2f}/M, 輸出: ${rates['output']:.2f}/M)\n"
+            f"- **定價來源 (Pricing Source)**: `{pricing_source}`\n"
             f"- **預估美金花費 (Estimated USD)**: `${total_usd_cost:.5f} USD`\n"
             f"- **預估台幣花費 (Estimated TWD)**: `NT$ {total_twd_cost:.3f} TWD` (匯率: {EXCHANGE_RATE_TWD})\n"
-            f"- *註記：此費用係依公開官方定價計算，僅供參考*\n\n"
+            f"- *註記：此費用係依官方公開牌價標準計算，僅供參考*\n\n"
         )
+        if isinstance(report_target, list):
+            report_target.append("\n" + "---" + "\n")
+            report_target.append(report_text)
+        elif hasattr(report_target, "write") and not getattr(report_target, "closed", False):
+            try:
+                report_target.write("\n" + "---" + "\n\n")
+                report_target.write(report_text)
+                report_target.flush()
+            except Exception:
+                pass
         if isinstance(report_target, list):
             report_target.append("\n" + "---" + "\n")
             report_target.append(report_text)

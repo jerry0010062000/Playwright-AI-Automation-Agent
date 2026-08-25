@@ -97,6 +97,10 @@ def execute_function_calls(interaction, page, screen_width: int, screen_height: 
                 except Exception as e:
                     action_result = {"error": str(e)}
             
+            elif fname in ("zoom", "magnify"):
+                print("[INFO] AI 調用縮放檢查 (Zoom/Magnify)，自動確認高解析度細節。")
+                action_result = {"status": "Zoom focus acknowledged. Native resolution image details are available."}
+            
             else:
                 print(f"⚠️  警告: 未處理的函數 {fname}")
 
@@ -359,6 +363,8 @@ def _handle_claude_computer_action(page, args: dict, screen_width: int, screen_h
                 
                 final_key = "+".join(translated_parts)
                 page.keyboard.press(final_key)
+    elif action in ("zoom", "magnify"):
+        print("[INFO] AI 調用局部縮放動作 (Zoom/Magnify)，保持當前焦點。")
     elif action == "left_click_drag":
         page.mouse.down()
         page.mouse.move(actual_x, actual_y)

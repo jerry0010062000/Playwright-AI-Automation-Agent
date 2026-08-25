@@ -58,9 +58,9 @@ class ClaudeAgent:
         """
         初始化 Claude 客戶端
         """
-        # 決定使用的 API Key/Token與 Base URL（基於是否啟用閘道代理配置）
-        if CLAUDE_USE_GATEWAY:
-            api_key = CLAUDE_AUTH_TOKEN or CLAUDE_API_KEY
+        # 決定使用的 API Key/Token 與 Base URL（支援自訂 Base URL、Proxy 或 Gateway 代理配置）
+        if CLAUDE_USE_GATEWAY or CLAUDE_BASE_URL:
+            api_key = CLAUDE_AUTH_TOKEN or CLAUDE_API_KEY or "dummy-key-for-proxy"
             base_url = CLAUDE_BASE_URL or None
         else:
             api_key = CLAUDE_API_KEY
@@ -439,11 +439,29 @@ class ClaudeAgent:
             }
         ]
         
-        # 根據環境變數或配置決定是否傳送 beta 標頭（預設啟用 computer-use beta）
-        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [beta_header]
+        # 根據環境變數或配置決定是否傳送 beta 標頭（預設啟用 computer-use beta 與 prompt-caching）
+        betas = []
+        if CLAUDE_DISABLE_EXPERIMENTAL_BETAS != "1":
+            if beta_header:
+                betas.append(beta_header)
+            if "prompt-caching-2024-07-25" not in betas:
+                betas.append("prompt-caching-2024-07-25")
         
+        # 標記系統提示詞啟用 Prompt Caching
+        system_blocks = [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
+        
+        # 在最後一個 Tool 上啟用 Prompt Caching 斷點
+        if tools:
+            tools[-1]["cache_control"] = {"type": "ephemeral"}
+
         # Diagnostic logging: only show summary and the last message details to prevent terminal bloat
-        print(f"[*] API Call: System Prompt Length = {len(system_prompt)} chars")
+        print(f"[*] API Call: System Prompt Length = {len(system_prompt)} chars (Prompt Caching Enabled)")
         print(f"[*] API Call: Number of messages in history = {len(self.messages)}")
         if self.messages:
             last_msg = self.messages[-1]
@@ -453,7 +471,7 @@ class ClaudeAgent:
         response = self.client.beta.messages.create(
             model=self.model,
             max_tokens=4096,
-            system=system_prompt,
+            system=system_blocks,
             messages=self.messages,
             tools=tools,
             betas=betas
@@ -492,15 +510,19 @@ class ClaudeAgent:
             "content": assistant_content
         })
         
-        # 提取 token 使用量
+        # 提取 token 使用量 (包含 Prompt Cache 讀取與寫入統計)
         usage_info = {
             "input_tokens": 0,
             "output_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
             "total_tokens": 0
         }
         if hasattr(response, "usage") and response.usage:
             usage_info["input_tokens"] = getattr(response.usage, "input_tokens", 0)
             usage_info["output_tokens"] = getattr(response.usage, "output_tokens", 0)
+            usage_info["cache_creation_input_tokens"] = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+            usage_info["cache_read_input_tokens"] = getattr(response.usage, "cache_read_input_tokens", 0) or 0
             usage_info["total_tokens"] = usage_info["input_tokens"] + usage_info["output_tokens"]
             
         # 互動 ID 使用歷史紀錄長度字串表示
@@ -607,12 +629,25 @@ class ClaudeAgent:
         
         # 取得與主對話相同的 beta header 配置，確保自訂閘道代理能成功進行路由分發
         _, resolved_beta = self._get_computer_config()
-        betas = [] if CLAUDE_DISABLE_EXPERIMENTAL_BETAS == "1" else [resolved_beta]
+        betas = []
+        if CLAUDE_DISABLE_EXPERIMENTAL_BETAS != "1":
+            if resolved_beta:
+                betas.append(resolved_beta)
+            if "prompt-caching-2024-07-25" not in betas:
+                betas.append("prompt-caching-2024-07-25")
+
+        system_blocks = [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
 
         response = self.client.beta.messages.create(
             model=self.model,
             max_tokens=4096,
-            system=system_prompt,
+            system=system_blocks,
             messages=messages,
             betas=betas
         )
@@ -626,6 +661,8 @@ class ClaudeAgent:
         # 提取 Token 使用量
         input_tokens = response.usage.input_tokens if hasattr(response, "usage") else 0
         output_tokens = response.usage.output_tokens if hasattr(response, "usage") else 0
+        cache_creation = getattr(response.usage, "cache_creation_input_tokens", 0) if hasattr(response, "usage") else 0
+        cache_read = getattr(response.usage, "cache_read_input_tokens", 0) if hasattr(response, "usage") else 0
         total_tokens = input_tokens + output_tokens
         
         return {
@@ -633,6 +670,8 @@ class ClaudeAgent:
             "usage": {
                 "input": input_tokens,
                 "output": output_tokens,
+                "cache_creation_input_tokens": cache_creation or 0,
+                "cache_read_input_tokens": cache_read or 0,
                 "total": total_tokens
             }
         }

@@ -6,6 +6,33 @@ from urllib.parse import urlparse
 from reporting.single_page_report import get_map_records_dir, get_page_report_relpath
 
 
+def save_sitemap_atomic(sitemap_path: str, data: dict, indent: int = 2) -> bool:
+    """
+    原子安全寫入 Sitemap JSON 檔案。
+    先寫入暫存檔 (.tmp)，確認完全寫入後再以 os.replace 原子上線，
+    可完全避免中斷或崩潰時造成原始 JSON 毀損。
+    """
+    try:
+        dir_name = os.path.dirname(sitemap_path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        tmp_path = f"{sitemap_path}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=indent)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, sitemap_path)
+        return True
+    except Exception as e:
+        print(f"[ERROR] 原子寫入 Sitemap 失敗 ({sitemap_path}): {e}")
+        try:
+            with open(sitemap_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=indent)
+            return True
+        except Exception:
+            return False
+
+
 def restructure_sitemap_hierarchy(nodes: dict) -> dict:
     """
     重構 Sitemap 節點階層，自動補齊中間路徑的虛擬 CATEGORY 目錄節點，
@@ -33,7 +60,7 @@ def restructure_sitemap_hierarchy(nodes: dict) -> dict:
                 
                 nodes[intermediate_path] = {
                     "path": intermediate_path,
-                    "title": f"📁 {title_name}",
+                    "title": f"[目錄] {title_name}",
                     "parent": None,
                     "children": [],
                     "is_leaf": False,
@@ -117,18 +144,17 @@ def mark_dynamic_verified(sitemap_path: str, page_url: str):
             
             if not os.path.exists(report_full_path):
                 with open(report_full_path, "w", encoding="utf-8") as pf:
-                    pf.write(f"# 📝 頁面無障礙巡檢報告 (Page Audit Report)\n\n")
+                    pf.write(f"# 頁面無障礙巡檢報告 (Page Audit Report)\n\n")
                     pf.write(f"- **頁面相對路徑**: `{target_key_matched}`\n")
                     pf.write(f"- **完整網址**: {page_url}\n")
-                    pf.write(f"- **校對類型**: 🤖 動態 AI 巡檢 (Dynamic AI Audit)\n")
+                    pf.write(f"- **校對類型**: 動態 AI 巡檢 (Dynamic AI Audit)\n")
                     pf.write(f"- **校對時間**: `{now_str}`\n\n")
-                    pf.write(f"## 📊 檢測結論與記錄\n此頁面已完成動態 AI 鍵盤與視覺焦點無障礙走訪驗證。\n")
+                    pf.write(f"## 檢測結論與記錄\n此頁面已完成動態 AI 鍵盤與視覺焦點無障礙走訪驗證。\n")
 
             nodes[target_key_matched]["dynamic_verified_at"] = now_str
             nodes[target_key_matched]["report_file"] = report_relpath
-            with open(actual_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
-            print(f"[MAP SYNC] 🤖 成功寫入動態校對 Checkpoint: [{target_key_matched}] ({now_str})")
+            save_sitemap_atomic(actual_path, data, indent=4)
+            print(f"[MAP SYNC] 成功寫入動態校對 Checkpoint: [{target_key_matched}] ({now_str})")
     except Exception as e:
         pass
 
@@ -141,33 +167,33 @@ def build_wcag_coverage_table(wcag_ver: str) -> list:
     w_upper = wcag_ver.upper() if wcag_ver else ""
     
     if w_upper in ["ALL", "STATIC_ALL"]:
-        lines.append("### 📋 靜態全量無障礙檢測涵蓋條款與規範細分 (Static ALL Coverage)")
+        lines.append("### 靜態全量無障礙檢測涵蓋條款與規範細分 (Static ALL Coverage)")
         lines.append("| 條款編號 | 成功條款名稱 (Success Criteria) | 合規等級 | 檢測方式與說明 |")
         lines.append("| :--- | :--- | :---: | :--- |")
-        lines.append("| **WCAG 1.1.1** | 非文字內容 (Non-text Content) | Level A | ⚡ 靜態 DOM / img alt / svg aria-label 檢查 |")
-        lines.append("| **WCAG 1.3.1** | 資訊與關係 (Info and Relationships) | Level A | ⚡ 靜態 h1-h6 階層 / form label / table header 檢查 |")
-        lines.append("| **WCAG 1.3.5** | 識別輸入用途 (Identify Input Purpose) | Level AA | ⚡ 靜態 input autocomplete 屬性驗證 |")
-        lines.append("| **WCAG 1.4.1** | 色彩的使用 (Use of Color) | Level A | ⚡ 靜態文字與背景純顏色依賴檢查 |")
-        lines.append("| **WCAG 1.4.3** | 對比度 (最小門檻 4.5:1 / 3:1) | Level AA | ⚡ 靜態計算文字與背景色調對比度 |")
-        lines.append("| **WCAG 1.4.11**| 非文字對比度 (Non-text Contrast 3:1) | Level AA | ⚡ 靜態 UI 組件與邊框對比度計算 |")
-        lines.append("| **WCAG 2.4.1** | 旁路區塊 (Bypass Blocks / Skip Link) | Level A | ⚡ 靜態導航區域 Skip-to-content 錨點驗證 |")
-        lines.append("| **WCAG 2.4.2** | 頁面標題 (Page Titled) | Level A | ⚡ 靜態 `<title>` 標籤存在性與非空驗證 |")
-        lines.append("| **WCAG 3.1.1** | 網頁語言 (Language of Page) | Level A | ⚡ 靜態 `<html lang>` 屬性合法性驗證 |")
-        lines.append("| **WCAG 4.1.2** | 名稱、角色與數值 (Name, Role, Value) | Level A | ⚡ 靜態 ARIA Role 與 Button 命名合法性 |")
+        lines.append("| **WCAG 1.1.1** | 非文字內容 (Non-text Content) | Level A | 靜態 DOM / img alt / svg aria-label 檢查 |")
+        lines.append("| **WCAG 1.3.1** | 資訊與關係 (Info and Relationships) | Level A | 靜態 h1-h6 階層 / form label / table header 檢查 |")
+        lines.append("| **WCAG 1.3.5** | 識別輸入用途 (Identify Input Purpose) | Level AA | 靜態 input autocomplete 屬性驗證 |")
+        lines.append("| **WCAG 1.4.1** | 色彩的使用 (Use of Color) | Level A | 靜態文字與背景純顏色依賴檢查 |")
+        lines.append("| **WCAG 1.4.3** | 對比度 (最小門檻 4.5:1 / 3:1) | Level AA | 靜態計算文字與背景色調對比度 |")
+        lines.append("| **WCAG 1.4.11**| 非文字對比度 (Non-text Contrast 3:1) | Level AA | 靜態 UI 組件與邊框對比度計算 |")
+        lines.append("| **WCAG 2.4.1** | 旁路區塊 (Bypass Blocks / Skip Link) | Level A | 靜態導航區域 Skip-to-content 錨點驗證 |")
+        lines.append("| **WCAG 2.4.2** | 頁面標題 (Page Titled) | Level A | 靜態 `<title>` 標籤存在性與非空驗證 |")
+        lines.append("| **WCAG 3.1.1** | 網頁語言 (Language of Page) | Level A | 靜態 `<html lang>` 屬性合法性驗證 |")
+        lines.append("| **WCAG 4.1.2** | 名稱、角色與數值 (Name, Role, Value) | Level A | 靜態 ARIA Role 與 Button 命名合法性 |")
         lines.append("")
     elif w_upper in ["DYNAMIC_ALL"]:
-        lines.append("### 📋 動態全量無障礙檢測涵蓋條款與規範細分 (Dynamic ALL Coverage)")
+        lines.append("### 動態全量無障礙檢測涵蓋條款與規範細分 (Dynamic ALL Coverage)")
         lines.append("| 條款編號 | 成功條款名稱 (Success Criteria) | 合規等級 | 檢測方式與說明 |")
         lines.append("| :--- | :--- | :---: | :--- |")
-        lines.append("| **WCAG 2.1.1** | 鍵盤操作 (Keyboard Accessible) | Level A | 🤖 Focus-Scan + AI 鍵盤按鍵連鎖比對 |")
-        lines.append("| **WCAG 2.1.2** | 無鍵盤陷阱 (No Keyboard Trap) | Level A | 🤖 AI 焦點循環陷阱與 Escape 脫離測試 |")
-        lines.append("| **WCAG 2.1.4** | 單鍵快捷鍵 (Character Key Shortcuts) | Level A | 🤖 AI 快捷鍵觸發與閉鎖行為防護驗證 |")
-        lines.append("| **WCAG 2.2.1** | 可調整時間 (Timing Adjustable) | Level A | 🤖 AI 超時防護與 Session 警示判定 |")
-        lines.append("| **WCAG 2.4.7** | 焦點可見 (Focus Visible Outline) | Level AA | 🤖 Focus-Scan 焦點環外框樣式算繪分析 |")
-        lines.append("| **WCAG 2.5.3** | 標籤中的名稱 (Label in Name) | Level A | 🤖 AI 視覺文字與可存取名稱 (Accessible Name) 一致性 |")
+        lines.append("| **WCAG 2.1.1** | 鍵盤操作 (Keyboard Accessible) | Level A | Focus-Scan + AI 鍵盤按鍵連鎖比對 |")
+        lines.append("| **WCAG 2.1.2** | 無鍵盤陷阱 (No Keyboard Trap) | Level A | AI 焦點循環陷阱與 Escape 脫離測試 |")
+        lines.append("| **WCAG 2.1.4** | 單鍵快捷鍵 (Character Key Shortcuts) | Level A | AI 快捷鍵觸發與閉鎖行為防護驗證 |")
+        lines.append("| **WCAG 2.2.1** | 可調整時間 (Timing Adjustable) | Level A | AI 超時防護與 Session 警示判定 |")
+        lines.append("| **WCAG 2.4.7** | 焦點可見 (Focus Visible Outline) | Level AA | Focus-Scan 焦點環外框樣式算繪分析 |")
+        lines.append("| **WCAG 2.5.3** | 標籤中的名稱 (Label in Name) | Level A | AI 視覺文字與可存取名稱 (Accessible Name) 一致性 |")
         lines.append("")
     else:
-        lines.append(f"### 📋 專項無障礙條款檢測範圍 (`WCAG {wcag_ver}` Coverage)")
+        lines.append(f"### 專項無障礙條款檢測範圍 (`WCAG {wcag_ver}` Coverage)")
         lines.append("| 條款編號 | 成功條款名稱 (Success Criteria) | 合規等級 | 說明 |")
         lines.append("| :--- | :--- | :---: | :--- |")
         clean = wcag_ver.replace(".", "")
@@ -209,7 +235,7 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
     
     # 若地圖不存在，自動創建最小地圖
     if not os.path.exists(sitemap_path):
-        print(f"[🌱] 地圖檔案不存在，自動創建最小地圖...")
+        print(f"[INFO] 地圖檔案不存在，自動創建最小地圖...")
         
         sitemap_dir = os.path.dirname(sitemap_path)
         if sitemap_dir and not os.path.exists(sitemap_dir):
@@ -234,9 +260,8 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
         }
         
         try:
-            with open(sitemap_path, "w", encoding="utf-8") as sf:
-                json.dump(minimal_sitemap, sf, ensure_ascii=False, indent=2)
-            print(f"[✅] 最小地圖已創建：{sitemap_path}")
+            save_sitemap_atomic(sitemap_path, minimal_sitemap, indent=2)
+            print(f"[OK] 最小地圖已創建：{sitemap_path}")
             print(f"  - 將從根路徑 '/' 開始自動探索整個網站結構")
         except Exception as e:
             print(f"[ERROR] 創建最小地圖失敗: {e}")
@@ -287,7 +312,7 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
     # 提取語言過濾配置
     scan_languages = sitemap_data.get("scan_languages", None)
     if scan_languages:
-        print(f"[📌] 語言過濾已啟用：只掃描 {scan_languages} 語言版本")
+        print(f"[INFO] 語言過濾已啟用：只掃描 {scan_languages} 語言版本")
     
     # 從 sitemap metadata 讀取認證資訊
     if not username:
@@ -310,7 +335,7 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
             removed_static_resources.append(path)
     
     if removed_static_resources:
-        print(f"[🧹] 清理了 {len(removed_static_resources)} 個靜態資源節點 (圖片、CSS、JS 等)")
+        print(f"[INFO] 清理了 {len(removed_static_resources)} 個靜態資源節點 (圖片、CSS、JS 等)")
     
     # 清理後重新獲取節點列表 (排除虛擬目錄分類節點 CATEGORY)
     unverified_paths = [p for p, n in nodes.items() if not n.get("initialized") and n.get("status") != "CATEGORY"]
@@ -340,12 +365,20 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
     total_to_scan = len(queue)
     estimated_time_seconds = total_to_scan * 1.5
     estimated_minutes = int(estimated_time_seconds / 60)
-    print(f"[⏱️] 預計掃描時間: 約 {estimated_minutes} 分鐘 ({total_to_scan} 頁 × 1.5 秒/頁)")
+    print(f"[INFO] 預計掃描時間: 約 {estimated_minutes} 分鐘 ({total_to_scan} 頁 × 1.5 秒/頁)")
+
+    sitemap_tokens = {
+        "input": 0,
+        "output": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "total": 0
+    }
 
     while queue:
         if max_pages and visited_in_run >= max_pages:
             remaining_unverified = len([p for p, n in nodes.items() if not n.get("initialized") and p not in visited])
-            print(f"[⏸️] 已達到本次設定的最高走訪回合數 ({max_pages} 頁)。")
+            print(f"[PAUSE] 已達到本次設定的最高走訪回合數 ({max_pages} 頁)。")
             print(f"  - 本次進度已實時寫入 JSON 檔中斷點 (Checkpoint)。")
             print(f"  - 下次再執行此地圖更新時，將自動跳過已驗證頁面，繼續校對剩餘 {remaining_unverified} 頁！")
             break
@@ -388,8 +421,8 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
             
             # 檢查是否被跳轉到登入頁（會話超時）
             if actual_url != expected_url and "login" in actual_url and "login/status" not in actual_url and "login/clienttime" not in actual_url:
-                print(f"[⚠️] 檢測到頁面跳轉至登入頁 ({rel_path} → {page.url})")
-                print(f"[⚠️] 會話已失效，正在重新登入...")
+                print(f"[WARNING] 檢測到頁面跳轉至登入頁 ({rel_path} → {page.url})")
+                print(f"[WARNING] 會話已失效，正在重新登入...")
                 
                 if model_name and username and password:
                     try:
@@ -400,19 +433,24 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
                             username=username,
                             password=password
                         )
+                        sitemap_tokens["input"] += login_result.get("input", 0)
+                        sitemap_tokens["output"] += login_result.get("output", 0)
+                        sitemap_tokens["cache_read_input_tokens"] += login_result.get("cache_read_input_tokens", 0)
+                        sitemap_tokens["cache_creation_input_tokens"] += login_result.get("cache_creation_input_tokens", 0)
+                        sitemap_tokens["total"] += login_result.get("total", 0)
                         
                         if login_result.get("success"):
-                            print(f"[✓] 重新登入成功！重新訪問目標頁面: {rel_path}")
+                            print(f"[OK] 重新登入成功！重新訪問目標頁面: {rel_path}")
                             response = page.goto(full_url, timeout=12000, wait_until="domcontentloaded")
                             page.wait_for_timeout(1000)
                         else:
-                            print(f"[✗] 重新登入失敗！停止掃描以避免產生虛假死鏈。")
+                            print(f"[ERROR] 重新登入失敗！停止掃描以避免產生虛假死鏈。")
                             break
                     except Exception as e:
-                        print(f"[✗] 重新登入錯誤: {e}。停止掃描。")
+                        print(f"[ERROR] 重新登入錯誤: {e}。停止掃描。")
                         break
                 else:
-                    print(f"[✗] 缺少認證資訊，無法自動重新登入。停止掃描。")
+                    print(f"[ERROR] 缺少認證資訊，無法自動重新登入。停止掃描。")
                     break
             
             # 滾動頁面以觸發懶加載內容
@@ -452,21 +490,21 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
             if status_code >= 400 or not response or is_client_side_404:
                 has_children = len(nodes[rel_path].get("children", [])) > 0
                 if has_children:
-                    print(f"  📁 檢測到目錄節點為導覽目錄 (HTTP {status_code}{'，前端 404' if is_client_side_404 else ''})。標記為導覽目錄。")
+                    print(f"  [目錄] 檢測到節點為導覽目錄 (HTTP {status_code}{'，前端 404' if is_client_side_404 else ''})。標記為導覽目錄。")
                     nodes[rel_path]["status"] = "CATEGORY"
                     nodes[rel_path]["error"] = False
                     nodes[rel_path]["initialized"] = True
                     nodes[rel_path]["initialized_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     continue
                 else:
-                    print(f"  ⚠️ 檢測到實體死鏈 (HTTP {status_code}{'，前端 404' if is_client_side_404 else ''})。自地圖中移除並自癒結構...")
+                    print(f"  [死鏈] 檢測到實體死鏈 (HTTP {status_code}{'，前端 404' if is_client_side_404 else ''})。自地圖中移除並自癒結構...")
                     
                     if rel_path.startswith("../"):
                         parts = rel_path.split("/")
                         if len(parts) >= 3:
                             pattern = "/".join(parts[:3]) + "/"
                             dead_link_patterns.add(pattern)
-                            print(f"  📝 記錄死鏈模式: {pattern} (後續將自動跳過相似路徑)")
+                            print(f"  記錄死鏈模式: {pattern} (後續將自動跳過相似路徑)")
                     
                     parent_path = nodes[rel_path].get("parent")
                     if parent_path in nodes:
@@ -548,9 +586,9 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
                 try:
                     discovered_hrefs = page.evaluate(extract_links_script)
                     if discovered_hrefs:
-                        print(f"  🔍 在當前頁面發現 {len(discovered_hrefs)} 個同源連結")
+                        print(f"  在當前頁面發現 {len(discovered_hrefs)} 個同源連結")
                 except Exception as e:
-                    print(f"  ⚠️ 提取連結失敗: {e}")
+                    print(f"  [WARNING] 提取連結失敗: {e}")
                     discovered_hrefs = []
 
                 if "children" not in nodes[rel_path]:
@@ -604,7 +642,7 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
                             "status": "UNVERIFIED"
                         }
                         discovered_count += 1
-                        print(f"  ✨ 發現新頁面節點: {child_rel} (父節點: {rel_path})")
+                        print(f"  [新頁面] 發現新頁面節點: {child_rel} (父節點: {rel_path})")
                     
                     if child_rel not in visited and child_rel not in queue:
                         queue.append(child_rel)
@@ -612,7 +650,7 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
             nodes[rel_path]["initialized_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         except Exception as err:
-            print(f"  ⚠️ 走訪頁面失敗 {rel_path}: {err}")
+            print(f"  [WARNING] 走訪頁面失敗 {rel_path}: {err}")
             nodes[rel_path]["status"] = "ERROR"
             nodes[rel_path]["error"] = str(err)
             nodes[rel_path]["initialized_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -624,8 +662,7 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
                 sitemap_data["nodes"] = nodes
                 sitemap_data["total_pages"] = len(nodes)
                 sitemap_data["last_verified"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                with open(sitemap_path, "w", encoding="utf-8") as sf:
-                    json.dump(sitemap_data, sf, ensure_ascii=False, indent=2)
+                save_sitemap_atomic(sitemap_path, sitemap_data, indent=2)
             except Exception:
                 pass
 
@@ -636,8 +673,7 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
     sitemap_data["nodes"] = nodes
 
     try:
-        with open(sitemap_path, "w", encoding="utf-8") as sf:
-            json.dump(sitemap_data, sf, ensure_ascii=False, indent=2)
+        save_sitemap_atomic(sitemap_path, sitemap_data, indent=2)
         print("=" * 60)
         print(f"[✓] 地圖動態走訪與校對完成！")
         print(f"  - 走訪校對總頁數: {len(visited)}")
@@ -658,5 +694,6 @@ def verify_and_sync_sitemap(page, base_url: str, sitemap_path: str, max_pages: i
         "discovered_count": discovered_count,
         "updated_titles": updated_titles,
         "dead_count": dead_count,
-        "total_nodes": len(nodes)
+        "total_nodes": len(nodes),
+        "tokens": sitemap_tokens
     }

@@ -21,7 +21,7 @@ from playwright.sync_api import sync_playwright
 
 import config
 from config import (
-    CLAUDE_API_KEY,
+    CLAUDE_API_KEY, CLAUDE_BASE_URL, CLAUDE_AUTH_TOKEN, CLAUDE_USE_GATEWAY,
     SCREEN_WIDTH, SCREEN_HEIGHT, MAX_TURNS, HEADLESS,
     RESULT_OBSERVATION_TIME, MODEL_NAME, DEFAULT_TASK,
     INITIAL_URL, AI_ROLE, AI_BEHAVIOR, OUTPUT_FORMAT,
@@ -175,6 +175,10 @@ def parse_arguments():
                        help='自訂登入帳號，覆蓋 config.py 中的預設值')
     parser.add_argument('--password', type=str, default=None,
                        help='自訂登入密碼，覆蓋 config.py 中的預設值')
+    parser.add_argument('--rigor', type=str,
+                       choices=['balanced', 'strict', 'fast'],
+                       default='balanced',
+                       help='指定動態巡檢嚴謹度策略。balanced=均衡推薦(關鍵節點截圖), strict=精準細緻(每步存證截圖), fast=極速低耗(批次走訪/僅違規截圖)。預設：balanced')
     
     return parser.parse_args()
 
@@ -212,13 +216,15 @@ def run_agent_workflow(args):
     extra_instructions = ""
     global_total_input_tokens = 0
     global_total_output_tokens = 0
+    global_total_cache_read_tokens = 0
+    global_total_cache_creation_tokens = 0
     printed_token_summary = False
     
     if args.wcag:
         filename = f"guideline_{args.wcag.replace('.', '_')}.md"
         filepath = os.path.join("documentation", "wcag_rules", filename)
         if os.path.exists(filepath):
-            print(f"[*] Loading WCAG 2.2 rules from: {filepath}")
+            print(f"[*] 載入 WCAG 2.2 規範文檔: {filepath}")
             with open(filepath, "r", encoding="utf-8") as f:
                 rules_content = f.read()
             extra_instructions = f"\n\n請務必依據以下 WCAG 2.2 規範進行驗證及操作：\n\n{rules_content}\n\n" \
@@ -228,7 +234,7 @@ def run_agent_workflow(args):
                                  f"3. **禁止無效的系統嘗試**：請勿試圖按 F12、Ctrl+Shift+I 或以滑鼠右鍵開啟瀏覽器開發者工具（DevTools），也不要嘗試在地址欄輸入 `javascript:` 偽協定或使用 `data:` URL，這些在沙盒瀏覽器中均被安全機制封鎖或無法顯示。請直接使用專屬工具 `evaluate_javascript` 來讀取 DOM、或使用 `run_axe_audit` 進行無障礙代碼檢測。\n" \
                                  f"4. **【💡 全站高效率掃描技巧】**：若要快速檢查整個網站的所有頁面是否包含特定標籤（如 `<audio>`、`<video>`、`<iframe>` 等），您不需要逐頁點擊與等待，可在首頁直接執行非同步 fetch 掃描所有內部連結的 HTML。這可以讓您在 1 回合內檢測完所有子頁面，省去手動逐頁 Navigate 與等待的時間！"
         else:
-            print(f"[WARNING] WCAG rules file {filepath} not found. Running without injected rules.")
+            print(f"[WARNING] 未找到 WCAG 規範檔案 ({filepath})，將在無預載細則模式下執行。")
             
     # 進行適用度評估：若有 WCAG 指南，優先套用 rule-based 靜態與動態判定，免去 AI 評估成本
     is_axe_only = False
@@ -249,7 +255,7 @@ def run_agent_workflow(args):
 
     if is_axe_only:
         print("\n" + "="*60)
-        print("🎯 任務評估：此任務可透過本地代碼與結構巡檢解決！")
+        print("[任務評估] 此任務可透過本地代碼與結構巡檢解決！")
         print(f"  原因說明：{axe_reason}")
         print("="*60)
         print("[*] 啟動本地自動化無障礙檢測引擎...")
@@ -263,7 +269,7 @@ def run_agent_workflow(args):
         page.add_init_script("window.addEventListener('contextmenu', e => e.preventDefault(), true);")
         
         target_url = args.url or INITIAL_URL
-        print(f"[>>] 正在導航至目標頁面: {target_url}")
+        print(f"[頁面導航] 正在導航至目標頁面: {target_url}")
         try:
             page.goto(target_url, wait_until="domcontentloaded")
             
@@ -272,20 +278,21 @@ def run_agent_workflow(args):
             login_pass = args.password if args.password is not None else AUTO_LOGIN_PASSWORD
             if login_user or login_pass:
                 login_toks = perform_ai_login_phase(page, args.model, login_user, login_pass)
-                global_total_input_tokens += login_toks["input"]
-                global_total_output_tokens += login_toks["output"]
+                global_total_input_tokens += login_toks.get("input", 0)
+                global_total_output_tokens += login_toks.get("output", 0)
+                global_total_cache_read_tokens += login_toks.get("cache_read_input_tokens", 0)
+                global_total_cache_creation_tokens += login_toks.get("cache_creation_input_tokens", 0)
                 if login_toks.get("success") is False:
-                    print("\n[AI LOGIN] ❌ AI 預先登入失敗！認證未通過，終止後續巡檢任務。\n")
-                    if args.record and record_dir:
-                        report_path = os.path.join(record_dir, "report.md")
-                        with open(report_path, "w", encoding="utf-8") as rf:
-                            rf.write("# ❌ 任務失敗與終止報告\n\nAI 預先登入認證失敗，無法獲取進入後台授權，任務已自動提前終止。\n")
+                    print("\n[AI 預登入] [ERROR] 預先登入認證失敗！無法獲取後台授權，終止後續任務。\n")
+                    if global_total_input_tokens > 0 or global_total_output_tokens > 0:
+                        print_token_and_cost_summary(args.model, global_total_input_tokens, global_total_output_tokens, None, global_total_cache_read_tokens, global_total_cache_creation_tokens)
+                        printed_token_summary = True
                     return
             
             # 執行地圖動態校對與更新引擎 (若開啟 --verify-sitemap)
             if args.verify_sitemap:
                 sitemap_target = args.sitemap if args.sitemap else os.path.join("sitemaps", "sitemap.json")
-                verify_and_sync_sitemap(
+                sitemap_res = verify_and_sync_sitemap(
                     page=page, 
                     base_url=target_url, 
                     sitemap_path=sitemap_target, 
@@ -294,6 +301,17 @@ def run_agent_workflow(args):
                     username=login_user,
                     password=login_pass
                 )
+                if sitemap_res and "tokens" in sitemap_res:
+                    toks = sitemap_res["tokens"]
+                    global_total_input_tokens += toks.get("input", 0)
+                    global_total_output_tokens += toks.get("output", 0)
+                    global_total_cache_read_tokens += toks.get("cache_read_input_tokens", 0)
+                    global_total_cache_creation_tokens += toks.get("cache_creation_input_tokens", 0)
+                
+                # 若探索過程中有產生 AI 登入 Token，輸出結算
+                if global_total_input_tokens > 0 or global_total_output_tokens > 0:
+                    print_token_and_cost_summary(args.model, global_total_input_tokens, global_total_output_tokens, None, global_total_cache_read_tokens, global_total_cache_creation_tokens)
+                    printed_token_summary = True
                 return
 
             # 建立報告內容與檔名
@@ -305,11 +323,11 @@ def run_agent_workflow(args):
                 audit_res = perform_local_site_audit(page, target_url, args.wcag, sitemap_path=args.sitemap)
                 total_violations = audit_res["total_violations"]
                 
-                print(f"[✓] 本地全站巡檢完成！共發現 {total_violations} 個無障礙違規項目。")
+                print(f"[OK] 本地全站巡檢完成！共發現 {total_violations} 個無障礙違規項目。")
                 print("="*60)
                 
                 conformance_level = get_wcag_conformance_level(args.wcag)
-                report_lines.append(f"# 📝 WCAG {args.wcag} 本地自動化無障礙全站巡檢報告\n")
+                report_lines.append(f"# WCAG {args.wcag} 本地自動化無障礙全站巡檢報告\n")
                 report_lines.append(f"- **WCAG 檢測章節**: `WCAG {args.wcag}` ({conformance_level})")
                 report_lines.append(f"- **檢測目標主頁**: {target_url}")
                 report_lines.append(f"- **檢測時間**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -326,7 +344,7 @@ def run_agent_workflow(args):
                         wcag_level = get_violation_wcag_level(vio.get("tags", []))
                         level_counts[wcag_level] += 1
                 
-                report_lines.append("### 📊 違規等級統計 (Violations by Level)")
+                report_lines.append("### 違規等級統計 (Violations by Level)")
                 report_lines.append(f"- **Level A (必須達成)**: `{level_counts['A']}` 處違規")
                 report_lines.append(f"- **Level AA (推薦達成)**: `{level_counts['AA']}` 處違規")
                 report_lines.append(f"- **Level AAA (選配達成)**: `{level_counts['AAA']}` 處違規\n")
@@ -475,7 +493,7 @@ def run_agent_workflow(args):
 
             # 進行 AI 智慧診斷與評估
             is_claude = args.model.lower().startswith("claude-")
-            has_key = CLAUDE_API_KEY
+            has_key = bool(CLAUDE_API_KEY or CLAUDE_AUTH_TOKEN or CLAUDE_BASE_URL or CLAUDE_USE_GATEWAY)
             
             if has_key:
                 print("\n[AI] 正在將本地檢測結果遞交給 AI 進行智慧診斷與評估...")
@@ -523,26 +541,31 @@ def run_agent_workflow(args):
                     ai_response = ai_agent.diagnose_static_audit(target_url, ai_data_text, screenshot_bytes, wcag_guideline=args.wcag)
                     ai_text = ai_response["text"]
                     ai_usage = ai_response["usage"]
-                    global_total_input_tokens += ai_usage["input"]
-                    global_total_output_tokens += ai_usage["output"]
+                    global_total_input_tokens += ai_usage.get("input", 0)
+                    global_total_output_tokens += ai_usage.get("output", 0)
+                    global_total_cache_read_tokens += ai_usage.get("cache_read_input_tokens", 0)
+                    global_total_cache_creation_tokens += ai_usage.get("cache_creation_input_tokens", 0)
                     
                     print("\n" + "="*60)
-                    print("🤖 AI 智慧診斷與評估報告")
+                    print("[AI 智慧診斷與評估報告]")
                     print("="*60)
                     print(ai_text)
                     print("="*60 + "\n")
                     
                     report_lines.append("\n" + "---" + "\n")
-                    report_lines.append("## 🤖 AI 智慧診斷與評估報告\n")
+                    report_lines.append("## AI 智慧診斷與評估報告\n")
                     report_lines.append(ai_text)
                     
-                    print_token_and_cost_summary(args.model, global_total_input_tokens, global_total_output_tokens, report_lines)
+                    print_token_and_cost_summary(args.model, global_total_input_tokens, global_total_output_tokens, report_lines, global_total_cache_read_tokens, global_total_cache_creation_tokens)
                     printed_token_summary = True
                     
                 except Exception as ai_err:
                     print(f"[WARNING] AI 智慧診斷調用失敗: {ai_err}")
             else:
                 print("[INFO] 未偵測到對應的 API Key，跳過 AI 智慧診斷。")
+                if global_total_input_tokens > 0 or global_total_output_tokens > 0:
+                    print_token_and_cost_summary(args.model, global_total_input_tokens, global_total_output_tokens, report_lines, global_total_cache_read_tokens, global_total_cache_creation_tokens)
+                    printed_token_summary = True
 
             if args.record:
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -576,11 +599,12 @@ def run_agent_workflow(args):
     
     is_claude = args.model.lower().startswith("claude-")
     
-    # 檢查 API 金鑰
-    if not CLAUDE_API_KEY:
-        print("[ERROR] CLAUDE_API_KEY not found")
-        print("[INFO] Set with: $env:CLAUDE_API_KEY = 'your-api-key'")
-        print("[INFO] Or create config_llm.py with: CLAUDE_API_KEY = 'your-api-key'")
+    # 檢查 API 金鑰或 Proxy/Gateway 代理配置
+    has_auth = bool(CLAUDE_API_KEY or CLAUDE_AUTH_TOKEN or CLAUDE_BASE_URL or CLAUDE_USE_GATEWAY)
+    if not has_auth:
+        print("[ERROR] 找不到 Claude API 金鑰或 Proxy/Gateway 代理配置！")
+        print("[INFO] 請設定環境變數: $env:CLAUDE_API_KEY = 'your-api-key'")
+        print("[INFO] 或在 config_llm.py 中設定: CLAUDE_API_KEY = '...' / CLAUDE_BASE_URL = '...' / CLAUDE_AUTH_TOKEN = '...'")
         return
         
     if not is_claude:
@@ -685,6 +709,8 @@ def run_agent_workflow(args):
 
     total_input_tokens = global_total_input_tokens
     total_output_tokens = global_total_output_tokens
+    total_cache_read_tokens = 0
+    total_cache_creation_tokens = 0
 
     try:
         if args.wcag:
@@ -753,13 +779,13 @@ def run_agent_workflow(args):
 
         for page_idx, target in enumerate(target_pages):
             current_url = target["url"]
-            print(f"\n\n{'#'*80}")
-            print(f"🚀 [FEEDER] 正在處理第 {page_idx+1}/{len(target_pages)} 頁: {target['path']}")
+            print(f"\n\n{'='*60}")
+            print(f"[頁面巡檢] 正在處理第 {page_idx+1}/{len(target_pages)} 頁: {target['path']}")
             print(f"   目標網址: {current_url}")
-            print(f"{'#'*80}\n")
+            print(f"{'='*60}\n")
 
             if page.url != current_url:
-                print(f"[>>] 系統自動跳轉至: {current_url}")
+                print(f"[頁面導航] 系統自動跳轉至: {current_url}")
                 page.goto(current_url)
                 page.wait_for_timeout(1000)
                 try:
@@ -767,16 +793,18 @@ def run_agent_workflow(args):
                 except Exception:
                     pass
 
-            if page_idx > 0:
-                login_user = args.username if args.username is not None else AUTO_LOGIN_USERNAME
-                login_pass = args.password if args.password is not None else AUTO_LOGIN_PASSWORD
-                
-                actual_url = page.url.lower()
-                if "login" in actual_url and "login/status" not in actual_url:
-                    print("[!] 檢測到 Session 失效，執行自動重新登入...")
-                    login_toks = perform_ai_login_phase(page, args.model, login_user, login_pass)
-                    total_input_tokens += login_toks["input"]
-                    total_output_tokens += login_toks["output"]
+            login_user = args.username if args.username is not None else AUTO_LOGIN_USERNAME
+            login_pass = args.password if args.password is not None else AUTO_LOGIN_PASSWORD
+            
+            actual_url = page.url.lower()
+            if (login_user or login_pass) and ("login" in actual_url and "login/status" not in actual_url and "login/clienttime" not in actual_url):
+                print("[AI 預登入] 檢測到處於登入頁面，執行 AI 自動登入程序...")
+                login_toks = perform_ai_login_phase(page, args.model, login_user, login_pass)
+                total_input_tokens += login_toks.get("input", 0)
+                total_output_tokens += login_toks.get("output", 0)
+                total_cache_read_tokens += login_toks.get("cache_read_input_tokens", 0)
+                total_cache_creation_tokens += login_toks.get("cache_creation_input_tokens", 0)
+                if page_idx > 0 and page.url != current_url:
                     page.goto(current_url)
 
             initial_screenshot = page.screenshot(type="png")
@@ -785,8 +813,8 @@ def run_agent_workflow(args):
             if record_dir:
                 with open(os.path.join(record_dir, initial_screenshot_name), "wb") as f:
                     f.write(initial_screenshot)
-            report_file.write(f"\n# 🌐 頁面巡檢: {target['path']}\n")
-            report_file.write(f"## 🎬 初始狀態\n")
+            report_file.write(f"\n# 頁面巡檢: {target['path']}\n")
+            report_file.write(f"## 初始狀態\n")
             report_file.write(f"已導航至 {current_url}，初始畫面如下：\n\n")
             report_file.write(f"![初始截圖]({initial_screenshot_name})\n\n")
             report_file.flush()
@@ -798,16 +826,38 @@ def run_agent_workflow(args):
                 page.wait_for_timeout(1000)
                 focus_map = scan_focus_path(page)
                 if focus_map:
-                    table_lines = ["\n### 🔍 本頁面自動化焦點地圖 (Focus Map)\n", "| 順序 | 標籤 | ID | 文字 | 坐標 | 焦點可見 (Focus Visible) |", "| :--- | :--- | :--- | :--- | :--- | :--- |"]
+                    table_lines = ["\n### 本頁面自動化焦點地圖 (Focus Map)\n", "| 順序 | 標籤 | ID | 文字 | 坐標 | 焦點可見 (Focus Visible) |", "| :--- | :--- | :--- | :--- | :--- | :--- |"]
                     for item in focus_map[:35]:
-                        vis_status = "✅ YES (Has Outline)" if item.get('focusVis') else f"❌ NO ({item.get('outline', 'none')})"
+                        vis_status = "YES (Has Outline)" if item.get('focusVis') else f"NO ({item.get('outline', 'none')})"
                         table_lines.append(f"| {item.get('idx',1)} | {item.get('tag','')} | `{item.get('id','')}` | {item.get('text','')} | {item.get('pos',[0,0])} | {vis_status} |")
                     
                     page_extra_instructions += "\n" + "\n".join(table_lines)
-                    page_extra_instructions += f"\n\n**【⚠️ Scoped Audit 指示】**：\n" \
+                    
+                    rigor_mode = args.rigor.lower() if hasattr(args, 'rigor') and args.rigor else "balanced"
+                    if rigor_mode == "strict":
+                        rigor_guide = (
+                            "【嚴謹度策略：精準細緻模式 (Strict Audit)】\n"
+                            "• 請採取一步一驗證原則：每個焦點與按鍵請單獨操作並截圖存證，詳實記錄所有可視外框與操作細節供外部審核。"
+                        )
+                    elif rigor_mode == "fast":
+                        rigor_guide = (
+                            "【嚴謹度策略：極速低耗模式 (Fast Batch Audit)】\n"
+                            "• 請最大化執行效率：積極運用 evaluate_javascript 與多步連續鍵盤動作（例如一次發送多個 Tab）快速走訪焦點鏈。\n"
+                            "• 無需每步截圖，僅在發現明確無障礙違規（如焦點遺失、鍵盤陷阱）或任務總結時截圖存證，爭取在 4~8 個回合內高效完成任務。"
+                        )
+                    else:
+                        rigor_guide = (
+                            "【嚴謹度策略：均衡推薦模式 (Balanced Audit)】\n"
+                            "• 請兼顧深度與效率：充分利用系統已提供的 Focus Map 數據。對於標準且連續的連結/按鈕，可一次發送多個 Tab 或配合 evaluate_javascript 批次確認。\n"
+                            "• 當遇到選單展開、彈窗互動、表單操作，或發現潛在違規（如座標異常、隱藏元素聚焦、焦點外框缺失）時，才進行單獨截圖與深度驗證。\n"
+                            "• 爭取在 8~14 個回合內完成深度審查並產出總結。"
+                        )
+                    
+                    page_extra_instructions += f"\n\n**【Scoped Audit 指示】**：\n" \
                                               f"1. 你目前被系統主動引導至 `{target['path']}`，請對此頁面進行無障礙驗證。\n" \
                                               f"2. **焦點地圖已提供**：系統已預先為你掃描並附上『Focus Map』數據。請直接利用此數據評估 WCAG 2.1.1 與 2.4.7，**無需**再次執行 `scan_focus_path`。\n" \
-                                              f"3. **完成任務**：完成此頁面審查後，請產出報告並直接結束對話，以便系統切換至下一頁。"
+                                              f"3. {rigor_guide}\n" \
+                                              f"4. **完成任務**：完成此頁面審查後，請產出報告並直接結束對話，以便系統切換至下一頁。"
 
             active_skill = None
             if args.wcag:
@@ -824,6 +874,8 @@ def run_agent_workflow(args):
             init_tokens = get_interaction_tokens(interaction)
             total_input_tokens += init_tokens["input"]
             total_output_tokens += init_tokens["output"]
+            total_cache_read_tokens += init_tokens.get("cache_read_input_tokens", 0)
+            total_cache_creation_tokens += init_tokens.get("cache_creation_input_tokens", 0)
             print(f"[*] [PAGE {page_idx+1}] Initial Tokens - In: {init_tokens['input']}, Out: {init_tokens['output']}")
                 
             for turn in range(args.max_turns):
@@ -831,19 +883,19 @@ def run_agent_workflow(args):
                 
                 print(f"\n[PAGE {page_idx+1} | TURN {turn + 1}/{args.max_turns}]")
                 
-                report_file.write(f"### 🔄 第 {turn + 1} 回合\n")
+                report_file.write(f"### 第 {turn + 1} 回合\n")
                 
                 text_response = agent.extract_text_response(interaction)
                 if text_response.strip():
-                    print(f"🤖 [AI 思考輸出]:\n{text_response}\n")
-                    report_file.write(f"🤖 **AI**: {text_response}\n\n")
+                    print(f"[AI 思考輸出]:\n{text_response}\n")
+                    report_file.write(f"**AI**: {text_response}\n\n")
                     if not agent.has_function_calls(interaction):
                         if any(kw in text_response for kw in ["WCAG", "合規", "對照表", "診斷報告"]):
                             dump_single_page_settlement_report(sitemap_target_file, page.url, text_response)
 
                 if not agent.has_function_calls(interaction):
-                    print(f"[✓] [PAGE {page_idx+1}] 任務完成。")
-                    report_file.write(f"✅ **本頁面任務已完成**。\n\n")
+                    print(f"[OK] [PAGE {page_idx+1}] 任務完成。")
+                    report_file.write(f"**本頁面任務已完成**。\n\n")
                     break
                 
                 results = execute_function_calls(interaction, page, viewport_width, viewport_height)
@@ -854,30 +906,32 @@ def run_agent_workflow(args):
                 if record_dir:
                     with open(os.path.join(record_dir, screenshot_name), "wb") as f:
                         f.write(post_screenshot)
-                report_file.write(f"📸 ![步驟截圖]({screenshot_name})\n\n")
+                report_file.write(f"![步驟截圖]({screenshot_name})\n\n")
                 
                 interaction = agent.continue_interaction(interaction.id, function_responses)
                 
                 turn_tokens = get_interaction_tokens(interaction)
                 total_input_tokens += turn_tokens["input"]
                 total_output_tokens += turn_tokens["output"]
+                total_cache_read_tokens += turn_tokens.get("cache_read_input_tokens", 0)
+                total_cache_creation_tokens += turn_tokens.get("cache_creation_input_tokens", 0)
                 print(f"[*] [PAGE {page_idx+1} | TURN {turn + 1}] Turn Tokens - In: {turn_tokens['input']}, Out: {turn_tokens['output']}")
             else:
                 print(f"[!] [PAGE {page_idx+1}] 已達最大回合數，要求 AI 產出最終總結...")
-                report_file.write(f"⚠️ **已達最大回合數**，產出最終總結... \n\n")
+                report_file.write(f"**已達最大回合數**，產出最終總結... \n\n")
                 try:
                     summary_data = agent.get_final_summary(interaction.id)
                     final_summary = summary_data["summary"]
                     total_input_tokens += summary_data["usage"]["input"]
                     total_output_tokens += summary_data["usage"]["output"]
                     
-                    report_file.write(f"🤖 **AI 最終總結**: \n\n{final_summary}\n\n")
+                    report_file.write(f"**AI 最終總結**: \n\n{final_summary}\n\n")
                     dump_single_page_settlement_report(sitemap_target_file, page.url, final_summary)
-                    print(f"[✓] [PAGE {page_idx+1}] 最終總結已完成並寫入報告。")
+                    print(f"[OK] [PAGE {page_idx+1}] 最終總結已完成並寫入報告。")
                 except Exception as se:
                     print(f"[!] 產出總結失敗: {se}")
 
-        print_token_and_cost_summary(args.model, total_input_tokens, total_output_tokens, report_file)
+        print_token_and_cost_summary(args.model, total_input_tokens, total_output_tokens, report_file, total_cache_read_tokens, total_cache_creation_tokens)
         printed_token_summary = True
         
         print(f"\n[-] 任務結束，將於 {RESULT_OBSERVATION_TIME} 秒後關閉...")
@@ -889,7 +943,7 @@ def run_agent_workflow(args):
             import traceback
             traceback.print_exc()
             if 'report_file' in locals() and not report_file.closed:
-                report_file.write(f"\n## ❌ 執行發生錯誤\n`{str(e)}`\n")
+                report_file.write(f"\n## 執行發生錯誤\n`{str(e)}`\n")
 
     finally:
         print("\n[~] Cleaning up...")
