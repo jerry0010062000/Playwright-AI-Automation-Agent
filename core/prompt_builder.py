@@ -308,10 +308,13 @@ def build_wcag_prompt(user_task: str, wcag_ver: str, rules_dir: str = "documenta
         f"【任務標的與要求】:\n{user_task}\n\n"
         f"【注入之 WCAG 2.2 / 無障礙對照與稽核規範 (Guideline {wcag_ver})】:\n"
         f"{rules_text if rules_text else '請依據 WCAG 2.2 通用規範進行評估。'}\n\n"
-        "【稽核與報告產出指導方針】:\n"
-        "1. 請依照網站地圖進行全站巡檢。\n"
-        "2. 每當完成一個頁面的走訪與無障礙診斷後，請務必於回答中包含包含 `WCAG`、`合規對照表`、`Success Criteria` 關鍵字之詳細條款對照表與問題修復建議。\n"
-        "3. 對照表必須清晰寫出 Success Criteria 編號 (例如 2.1.1, 2.4.7)、等級 (Level A/AA/AAA)、合規狀態 (PASS/FAIL) 及具體受影響的 DOM 元素。"
+        "【稽核與每回合思考標準指導方針 (Two-Section Reasoning & SPEC Mapping)】:\n"
+        f"1. **嚴格限制檢測範圍**：本次檢測任務專注於【WCAG Guideline {wcag_ver}】。請絕對不要檢測或回報屬於其他章節的條款！\n"
+        "2. **每回合思考文字必須嚴格分為兩節**：\n"
+        "   - **第一節：【上一動狀態與截圖/DOM 分析】**：整理上一張截圖得到的訊息（焦點 activeElement 位於何處、標籤 ID、文字、可視狀態、畫面是否有彈窗/抽屜展開）。\n"
+        f"   - **第二節：【下一步計畫與對應 WCAG SPEC 條款】**：規劃下一步動作，並**明確說明這是依照本次注入之 WCAG Guideline {wcag_ver} 中的哪一個具體條款** 進行的閱讀理解與驗證。\n"
+        "3. 每當完成一個頁面的走訪與無障礙診斷後，請務必於回答中包含 `WCAG`、`合規對照表`、`Success Criteria` 關鍵字之詳細條款對照表與問題修復建議。\n"
+        f"4. 對照表必須清晰寫出 Success Criteria 編號 (僅限 Guideline {wcag_ver} 條款)、等級 (Level A/AA/AAA)、合規狀態 (PASS/FAIL) 及具體受影響的 DOM 元素。"
     )
     
     return full_instructions, rules_text

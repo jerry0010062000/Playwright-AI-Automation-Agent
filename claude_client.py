@@ -66,10 +66,12 @@ class ClaudeAgent:
             api_key = CLAUDE_API_KEY
             base_url = None
         
-        # 初始化 Claude 客戶端，設定自訂 Base URL
+        # 初始化 Claude 客戶端，設定自訂 Base URL、超時限制與自動重試
         self.client = anthropic.Anthropic(
             api_key=api_key if api_key else None,
-            base_url=base_url
+            base_url=base_url,
+            timeout=60.0,
+            max_retries=2
         )
         
         self.role = role or "default"
@@ -125,14 +127,15 @@ class ClaudeAgent:
             skill=skill
         )
 
-        # 建立初始對話歷史
+        # 建立初始對話歷史，並在包含巨大 WCAG 規範與 Focus Map 的任務文字區塊加上 cache_control
         self.messages = [
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "text",
-                        "text": enhanced_task
+                        "text": enhanced_task,
+                        "cache_control": {"type": "ephemeral"}
                     },
                     {
                         "type": "image",
@@ -258,30 +261,30 @@ class ClaudeAgent:
             "usage": tokens
         }
 
-    def _prune_history_images(self):
+    def _prune_history_images(self, keep_recent: int = 1):
         """
-        修剪歷史訊息中的舊截圖，只保留最後一回合（最新）的截圖，以節省 Token。
-        為了避免破壞 JSON 結構，我們將舊截圖物件改為一個簡短的提示文字區塊。
+        修剪歷史訊息中的舊截圖，只保留最新 1 回合的截圖，以徹底消除影像 Token 累積。
+        為了避免破壞 Anthropic API 的結構，將舊截圖物件替換為極簡的佔位提示文字區塊。
         """
         image_occurrences = []
         for i, msg in enumerate(self.messages):
             content = msg.get("content")
             if isinstance(content, list):
                 for j, block in enumerate(content):
-                    if block.get("type") == "image":
-                        image_occurrences.append((i, j, None))
-                    elif block.get("type") == "tool_result" and isinstance(block.get("content"), list):
-                        for k, sub_block in enumerate(block["content"]):
-                            if sub_block.get("type") == "image":
-                                image_occurrences.append((i, j, k))
+                    if isinstance(block, dict):
+                        if block.get("type") == "image":
+                            image_occurrences.append((i, j, None))
+                        elif block.get("type") == "tool_result" and isinstance(block.get("content"), list):
+                            for k, sub_block in enumerate(block["content"]):
+                                if isinstance(sub_block, dict) and sub_block.get("type") == "image":
+                                    image_occurrences.append((i, j, k))
                                 
-        if len(image_occurrences) > 1:
-            # 除了最後一個圖片，其餘圖片通通更換為提示文字
-            for i, j, k in image_occurrences[:-1]:
+        if len(image_occurrences) > keep_recent:
+            for i, j, k in image_occurrences[:-keep_recent]:
                 msg = self.messages[i]
                 replacement = {
                     "type": "text",
-                    "text": "[Screenshot of this historical step removed to save tokens]"
+                    "text": "[Historical screenshot pruned to save tokens]"
                 }
                 if k is None:
                     msg["content"][j] = replacement
@@ -354,11 +357,12 @@ class ClaudeAgent:
 
     def _create_claude_response(self):
         """呼叫 Claude Messages API 並轉換為統一互動格式"""
-        # 執行歷史截圖剪裁與滑動視窗對話截斷，嚴格封頂 Token 消耗
-        self._prune_history_images()
-        # 由於 Feeder 模式在換頁時會徹底清除 interaction 記憶，
-        # 在單頁內的對話不進行特別的回合剪裁或限制，以維持 AI 對該頁面的完整判斷力。
-        # self._apply_sliding_window(max_history_turns=15)
+        # 1. 執行歷史截圖剪裁：嚴格限制上下文僅保留最新 1 張截圖（消除 90% 冗餘圖像 Token）
+        self._prune_history_images(keep_recent=1)
+        # 2. 歷史文字與操作記憶策略：
+        # 單頁巡檢內完整保留過去所有動作、思考與 DOM 探測結果，確保 AI 具備 100% 長時記憶不重複操作，
+        # 同時維持 Anthropic Prompt Cache 前綴穩定性，享受 90% 快取讀取優惠（僅在極端超過 35 回合時作為安全防線）。
+        self._apply_sliding_window(keep_recent_turns=35)
         
         # 建立完整的系統提示詞 (包含行為原則與停損指南)
         system_prompt = self._build_system_prompt()
@@ -391,6 +395,10 @@ class ClaudeAgent:
                 "input_schema": {
                     "type": "object",
                     "properties": {
+                        "intent": {
+                            "type": "string",
+                            "description": "【強制必填】依照 WCAG 兩段式分析：說明目前觀察到的狀態與下一步對應之 WCAG 條款（例如：WCAG 2.1.1 導航）。"
+                        },
                         "url": {
                             "type": "string",
                             "description": "The target URL to load (e.g. 'http://localhost:8000/')."
@@ -404,7 +412,12 @@ class ClaudeAgent:
                 "description": "Go back to the previous page in the browser history.",
                 "input_schema": {
                     "type": "object",
-                    "properties": {}
+                    "properties": {
+                        "intent": {
+                            "type": "string",
+                            "description": "【強制必填】依照 WCAG 兩段式分析：說明上一動觀察與返回之 WCAG 條款依據。"
+                        }
+                    }
                 }
             },
             {
@@ -413,6 +426,10 @@ class ClaudeAgent:
                 "input_schema": {
                     "type": "object",
                     "properties": {
+                        "intent": {
+                            "type": "string",
+                            "description": "【強制必填】依照 WCAG 兩段式分析：說明上一動觀察與本次操作對應之當前任務 WCAG 條款依據。"
+                        },
                         "script": {
                             "type": "string",
                             "description": "The JavaScript expression or function body to evaluate (e.g. 'document.querySelectorAll(\"video, audio\").length')."
@@ -426,15 +443,25 @@ class ClaudeAgent:
                 "description": "Run the local Axe-core accessibility auditing engine on the current webpage and return a JSON report of all WCAG violations.",
                 "input_schema": {
                     "type": "object",
-                    "properties": {}
+                    "properties": {
+                        "intent": {
+                            "type": "string",
+                            "description": "執行 Axe 審查之意圖與 WCAG 規範範圍。"
+                        }
+                    }
                 }
             },
             {
                 "name": "scan_focus_path",
-                "description": "Scan the current page to retrieve the focus map: all focusable elements, their visual coordinates, and outline styles to check keyboard accessibility (WCAG 2.1.1, 2.4.7).",
+                "description": "Scan the current page to retrieve the focus map: all focusable elements, their visual coordinates, and outline styles to check keyboard accessibility.",
                 "input_schema": {
                     "type": "object",
-                    "properties": {}
+                    "properties": {
+                        "intent": {
+                            "type": "string",
+                            "description": "掃描焦點路徑之意圖與對應 WCAG 條款。"
+                        }
+                    }
                 }
             }
         ]
@@ -568,13 +595,19 @@ class ClaudeAgent:
     
     @staticmethod
     def extract_text_response(interaction) -> str:
-        return " ".join([
-            content_block.text 
-            for step in interaction.steps 
-            if step.type == "model_output"
-            for content_block in step.content 
-            if content_block.type == "text"
-        ])
+        texts = []
+        for step in interaction.steps:
+            if step.type == "model_output":
+                for content_block in step.content:
+                    if content_block.type == "text" and content_block.text:
+                        texts.append(content_block.text.strip())
+            elif step.type == "function_call":
+                args = step.arguments
+                if isinstance(args, dict) and "intent" in args and args["intent"]:
+                    intent_text = args["intent"].strip()
+                    if intent_text and intent_text not in texts:
+                        texts.append(f"【WCAG 動作依據與分析】: {intent_text}")
+        return "\n\n".join(texts)
 
     def diagnose_static_audit(self, target_url: str, audit_data_text: str, screenshot_bytes: bytes, wcag_guideline: str = None) -> dict:
         """
@@ -714,7 +747,7 @@ def get_function_responses(
     
     function_responses = []
     
-    for name, call_id, result in results:
+    for idx, (name, call_id, result) in enumerate(results):
         final_result = {"url": current_url, **result}
         if needs_safety:
             final_result["safety_acknowledgement"] = True
@@ -724,14 +757,16 @@ def get_function_responses(
                 "type": "text",
                 # 將結果序列化為 JSON，包含當前網址與安全認證
                 "text": json.dumps(final_result)
-            },
-            {
-                "type": "image",
-                # 將截圖編碼為 base64 字串
-                "data": base64.b64encode(screenshot_bytes).decode("utf-8"),
-                "mime_type": "image/png"
             }
         ]
+        
+        # 核心優化：只在該回合的「最後一個動作」附加截圖，避免一次批次執行多個動作時送出重複的巨型 Base64 截圖
+        if idx == len(results) - 1:
+            result_blocks.append({
+                "type": "image",
+                "data": base64.b64encode(screenshot_bytes).decode("utf-8"),
+                "mime_type": "image/png"
+            })
             
         # 為每個執行的函數建立回應
         function_responses.append({

@@ -11,7 +11,7 @@ from tkinter import ttk, messagebox, simpledialog
 import webbrowser
 import glob
 import random
-from reporting.single_page_report import get_page_report_relpath
+from reporting.single_page_report import get_page_report_relpath, calculate_page_coverage_pct
 
 from ui.theme import (
     BG_COLOR, PANEL_BG, BORDER_COLOR, TEXT_COLOR, HEADING_COLOR,
@@ -1159,8 +1159,21 @@ class WCAGAgentGUI:
                 
                 is_dead = is_err or ("404" in status_raw and status_raw != "CATEGORY") or ("HTTP_" in status_raw and status_raw != "CATEGORY") or "500" in status_raw
                 
+                coverage_dict = n.get("coverage_wcag", {})
+                cov_pct = n.get("coverage_pct")
+                if cov_pct is None and coverage_dict:
+                    cov_pct, _ = calculate_page_coverage_pct(coverage_dict)
+                elif cov_pct is None:
+                    cov_pct = 0
+                    if v_static and v_dynamic:
+                        cov_pct = 55
+                    elif v_dynamic:
+                        cov_pct = 35
+                    elif v_static:
+                        cov_pct = 30
+
                 tag = "pending"
-                status_str = "⏳ 待探索"
+                status_str = "⏳ 0% 待探索"
                 if is_dead:
                     tag = "error"
                     status_str = f"❌ 異常 ({status_raw})"
@@ -1168,21 +1181,24 @@ class WCAGAgentGUI:
                 elif status_raw == "CATEGORY":
                     tag = "category"
                     status_str = "📁 導覽目錄"
-                elif v_static and v_dynamic:
+                elif cov_pct >= 100:
                     tag = "full_ok"
-                    status_str = "🌟 靜/動雙重校對"
+                    status_str = "🌟 100% 完全合規"
                     full_c += 1
-                elif v_dynamic:
-                    tag = "dynamic_ok"
-                    status_str = "🤖 已動態校對"
-                    dynamic_c += 1
-                elif v_static:
-                    tag = "static_ok"
-                    status_str = "✅ 已靜態校對"
-                    static_c += 1
+                elif cov_pct > 0:
+                    if v_static and v_dynamic:
+                        tag = "full_ok"
+                        full_c += 1
+                    elif v_dynamic:
+                        tag = "dynamic_ok"
+                        dynamic_c += 1
+                    elif v_static:
+                        tag = "static_ok"
+                        static_c += 1
+                    status_str = f"📊 {cov_pct}% 已覆蓋"
                 elif n.get("initialized"):
                     tag = "initialized"
-                    status_str = "🔑 已認證存在"
+                    status_str = "🔑 0% 已探測"
                 else:
                     pending_c += 1
                     
@@ -1973,19 +1989,21 @@ class WCAGAgentGUI:
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             
+            proc = self.process
             # 持續讀取 stdout 串流
-            while self.process and self.process.stdout:
-                line = self.process.stdout.readline()
-                if not line and self.process.poll() is not None:
-                    break
+            while proc and proc.stdout:
+                line = proc.stdout.readline()
+                if not line:
+                    if proc.poll() is not None:
+                        break
                 if line:
                     self.log_queue.put(line)
                     
             # 結束狀態
-            return_code = self.process.poll() if self.process else -1
+            return_code = proc.poll() if proc else -1
             if return_code == 0:
                 self.log_queue.put("\n[GUI SUCCESS] 檢測任務執行完畢！\n")
-            elif return_code == -9 or return_code == 15 or (os.name == 'nt' and return_code == 1):
+            elif return_code == -9 or return_code == 15 or (os.name == 'nt' and return_code in (1, 15, -1)):
                 # 偵測手動終止或強制關閉
                 pass
             else:

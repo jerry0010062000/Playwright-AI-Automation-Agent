@@ -48,8 +48,8 @@ def execute_function_calls(interaction, page, screen_width: int, screen_height: 
         else:
             print(f"  → 執行動作: {fname}")
             
-        if "intent" in args:
-            print(f"    意圖: {args['intent']}")
+        if "intent" in args and args["intent"]:
+            print(f"  [WCAG 分析依據]: {args['intent']}")
 
         try:
             # 根據函數名稱執行對應的操作

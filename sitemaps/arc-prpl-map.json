@@ -17,12 +17,17 @@
             ],
             "is_leaf": false,
             "depth": 0,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\index.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:33",
-            "verified_at": "2026-08-25 14:06:46"
+            "initialized_at": "2026-08-25 16:14:18",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:53"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:53",
+            "static_verified_at": "2026-08-25 16:15:53"
         },
         "/login": {
             "path": "/login",
@@ -31,12 +36,17 @@
             "children": [],
             "is_leaf": true,
             "depth": 1,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\login.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:35",
-            "verified_at": "2026-08-25 14:06:32"
+            "initialized_at": "2026-08-25 16:14:20",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:43"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:43",
+            "static_verified_at": "2026-08-25 16:15:43"
         },
         "/forgot": {
             "path": "/forgot",
@@ -45,12 +55,17 @@
             "children": [],
             "is_leaf": true,
             "depth": 1,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\forgot.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:39",
-            "verified_at": "2026-08-25 14:06:45"
+            "initialized_at": "2026-08-25 16:14:21",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:50"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:50",
+            "static_verified_at": "2026-08-25 16:15:50"
         },
         "/overview": {
             "path": "/overview",
@@ -59,12 +74,17 @@
             "children": [],
             "is_leaf": true,
             "depth": 1,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\overview.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:36",
-            "verified_at": "2026-08-25 14:06:29"
+            "initialized_at": "2026-08-25 16:14:23",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:30"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:30",
+            "static_verified_at": "2026-08-25 16:15:30"
         },
         "/advanced": {
             "path": "/advanced",
@@ -77,12 +97,17 @@
             ],
             "is_leaf": false,
             "depth": 1,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\advanced.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:38",
-            "verified_at": "2026-08-25 14:06:31"
+            "initialized_at": "2026-08-25 16:14:24",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:37"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:37",
+            "static_verified_at": "2026-08-25 16:15:37"
         },
         "/advanced/network": {
             "path": "/advanced/network",
@@ -98,7 +123,7 @@
             "status": "CATEGORY",
             "error": false,
             "initialized": true,
-            "initialized_at": "2026-08-25 14:00:00"
+            "initialized_at": "2026-08-25 16:14:25"
         },
         "/advanced/network/lan": {
             "path": "/advanced/network/lan",
@@ -112,7 +137,7 @@
             "status": "CATEGORY",
             "error": false,
             "initialized": true,
-            "initialized_at": "2026-08-25 14:00:01"
+            "initialized_at": "2026-08-25 16:14:27"
         },
         "/advanced/network/lan/ip": {
             "path": "/advanced/network/lan/ip",
@@ -121,12 +146,17 @@
             "children": [],
             "is_leaf": true,
             "depth": 4,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\advanced\\network\\lan\\ip.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:40",
-            "verified_at": "2026-08-25 14:06:54"
+            "initialized_at": "2026-08-25 16:14:28",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:32"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:32",
+            "static_verified_at": "2026-08-25 16:15:32"
         },
         "/advanced/network/wan.htm": {
             "path": "/advanced/network/wan.htm",
@@ -135,13 +165,21 @@
             "children": [],
             "is_leaf": true,
             "depth": 3,
-            "status": "OK",
+            "status": "75% (靜態代碼, WCAG 2.1, WCAG 2.2, WCAG 2.3)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\advanced\\network\\wan_htm.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:42",
-            "verified_at": "2026-08-25 14:06:42",
-            "dynamic_verified_at": "2026-08-25 14:56:38"
+            "initialized_at": "2026-08-25 16:14:30",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:48",
+                "2.1": "2026-08-25 17:10:03",
+                "2.2": "2026-08-25 16:25:41",
+                "2.3": "2026-08-25 16:40:09"
+            },
+            "coverage_pct": 75,
+            "verified_at": "2026-08-25 16:15:48",
+            "static_verified_at": "2026-08-25 16:15:48",
+            "dynamic_verified_at": "2026-08-25 17:10:03"
         },
         "/advanced/network/wifi": {
             "path": "/advanced/network/wifi",
@@ -156,7 +194,7 @@
             "status": "CATEGORY",
             "error": false,
             "initialized": true,
-            "initialized_at": "2026-08-25 14:00:05"
+            "initialized_at": "2026-08-25 16:14:31"
         },
         "/advanced/network/wifi/settings": {
             "path": "/advanced/network/wifi/settings",
@@ -165,12 +203,17 @@
             "children": [],
             "is_leaf": true,
             "depth": 4,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\advanced\\network\\wifi\\settings.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:43",
-            "verified_at": "2026-08-25 14:06:35"
+            "initialized_at": "2026-08-25 16:14:32",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:51"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:51",
+            "static_verified_at": "2026-08-25 16:15:51"
         },
         "/advanced/system": {
             "path": "/advanced/system",
@@ -186,7 +229,7 @@
             "status": "CATEGORY",
             "error": false,
             "initialized": true,
-            "initialized_at": "2026-08-25 14:00:08"
+            "initialized_at": "2026-08-25 16:14:34"
         },
         "/advanced/system/pwd.htm": {
             "path": "/advanced/system/pwd.htm",
@@ -195,12 +238,17 @@
             "children": [],
             "is_leaf": true,
             "depth": 3,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\advanced\\system\\pwd_htm.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:45",
-            "verified_at": "2026-08-25 14:06:38"
+            "initialized_at": "2026-08-25 16:14:35",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:41"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:41",
+            "static_verified_at": "2026-08-25 16:15:41"
         },
         "/advanced/system/fw.htm": {
             "path": "/advanced/system/fw.htm",
@@ -209,12 +257,17 @@
             "children": [],
             "is_leaf": true,
             "depth": 3,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\advanced\\system\\fw_htm.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:46",
-            "verified_at": "2026-08-25 14:06:34"
+            "initialized_at": "2026-08-25 16:14:37",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:54"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:54",
+            "static_verified_at": "2026-08-25 16:15:54"
         },
         "/advanced/status": {
             "path": "/advanced/status",
@@ -223,12 +276,17 @@
             "children": [],
             "is_leaf": true,
             "depth": 2,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
             "report_file": "records\\arc-prpl-map\\advanced\\status.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:47",
-            "verified_at": "2026-08-25 14:06:52"
+            "initialized_at": "2026-08-25 16:14:38",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:35"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:35",
+            "static_verified_at": "2026-08-25 16:15:35"
         },
         "/advanced/network/wifi/radio": {
             "path": "/advanced/network/wifi/radio",
@@ -237,12 +295,17 @@
             "children": [],
             "is_leaf": true,
             "depth": 4,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
+            "report_file": "records\\arc-prpl-map\\advanced\\network\\wifi\\radio.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:49",
-            "verified_at": "2026-08-25 14:06:49",
-            "report_file": "records\\arc-prpl-map\\advanced\\network\\wifi\\radio.md"
+            "initialized_at": "2026-08-25 16:14:39",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:38"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:38",
+            "static_verified_at": "2026-08-25 16:15:38"
         },
         "/advanced/system/management": {
             "path": "/advanced/system/management",
@@ -251,15 +314,20 @@
             "children": [],
             "is_leaf": true,
             "depth": 3,
-            "status": "OK",
+            "status": "30% (靜態代碼)",
             "error": false,
+            "report_file": "records\\arc-prpl-map\\advanced\\system\\management.md",
             "initialized": true,
-            "initialized_at": "2026-08-25 14:04:50",
-            "verified_at": "2026-08-25 14:06:47",
-            "report_file": "records\\arc-prpl-map\\advanced\\system\\management.md"
+            "initialized_at": "2026-08-25 16:14:41",
+            "coverage_wcag": {
+                "static": "2026-08-25 16:15:44"
+            },
+            "coverage_pct": 30,
+            "verified_at": "2026-08-25 16:15:44",
+            "static_verified_at": "2026-08-25 16:15:44"
         }
     },
-    "last_verified": "2026-08-25 14:04:50",
+    "last_verified": "2026-08-25 16:14:41",
     "main_task": "動態單頁無障礙檢測",
     "page_path": "/advanced/network/wan.htm",
     "wcag_sel": "2.1 (動態 - 鍵盤可達與無陷阱 2.1.1, 2.1.2, 2.1.4)",
@@ -267,8 +335,8 @@
     "custom_model": "claude-5-sonnet-20260801",
     "model": "claude-sonnet-5 (預設)",
     "device": "desktop",
-    "max_turns": 30,
+    "max_turns": 50,
     "headless": true,
     "record": true,
-    "rigor_level": "Fast (極速低耗 - 批次快速巡檢)"
+    "rigor_level": "Strict (精準細緻 - 逐步稽核存證)"
 }

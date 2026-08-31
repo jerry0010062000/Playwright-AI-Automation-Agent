@@ -69,6 +69,44 @@ class NullWriter:
         pass
     def close(self, *args, **kwargs):
         pass
+
+
+class TeeWriter:
+    """同時向終端主控台 (stdout/stderr) 與記錄檔案 (run.log) 同步寫入日誌的雙向寫入器"""
+    def __init__(self, original_stream, log_file):
+        self.original_stream = original_stream
+        self.log_file = log_file
+
+    def write(self, data):
+        if self.original_stream:
+            try:
+                self.original_stream.write(data)
+                self.original_stream.flush()
+            except Exception:
+                pass
+        if self.log_file and hasattr(self.log_file, "write") and not getattr(self.log_file, "closed", False):
+            try:
+                self.log_file.write(data)
+                self.log_file.flush()
+            except Exception:
+                pass
+
+    def flush(self):
+        if self.original_stream:
+            try:
+                self.original_stream.flush()
+            except Exception:
+                pass
+        if self.log_file and hasattr(self.log_file, "flush") and not getattr(self.log_file, "closed", False):
+            try:
+                self.log_file.flush()
+            except Exception:
+                pass
+
+    def isatty(self):
+        if self.original_stream and hasattr(self.original_stream, "isatty"):
+            return self.original_stream.isatty()
+        return False
     @property
     def closed(self):
         return False
@@ -672,6 +710,8 @@ def run_agent_workflow(args):
 
     page.route("**/*", handle_route)
 
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     if args.record:
         wcag_suffix = f"_wcag{args.wcag.replace('.', '_')}" if args.wcag else ""
@@ -687,6 +727,8 @@ def run_agent_workflow(args):
         log_path = os.path.join(record_dir, "run.log")
         report_file = open(report_path, "w", encoding="utf-8")
         log_file = open(log_path, "w", encoding="utf-8")
+        sys.stdout = TeeWriter(original_stdout, log_file)
+        sys.stderr = TeeWriter(original_stderr, log_file)
     else:
         record_dir = None
         report_file = NullWriter()
@@ -853,11 +895,23 @@ def run_agent_workflow(args):
                             "• 爭取在 8~14 個回合內完成深度審查並產出總結。"
                         )
                     
+                    wcag_target = args.wcag if args.wcag else "2.1"
+                    thought_protocol = (
+                        f"**【每回合思考兩段式規範與 WCAG Guideline {wcag_target} 條款溯源 (強制執行)】**：\n"
+                        f"在發送任何工具呼叫前，你輸出的思考過程 (Thoughts) 必須一律使用繁體中文並嚴格分成以下兩節：\n"
+                        f"• **第一節：【上一動狀態與截圖/DOM 分析】**：整理上一張截圖或前一動作的反饋，說明當前焦點 (activeElement) 所在位置、標籤 ID、文字、可視外框 (outline) 與頁面渲染狀態。\n"
+                        f"• **第二節：【下一步計畫與對應 WCAG SPEC 條款】**：規劃下一步動作（按鍵、點擊、JS 探測），並**嚴格僅限依據本次任務注入之【WCAG Guideline {wcag_target}】的具體條款 (例如：{wcag_target}.1, {wcag_target}.2 等)** 進行閱讀理解與合規驗證。\n"
+                        f"⚠️ **【嚴格範圍禁令】**：絕對禁止越界檢測或判定任何非 Guideline {wcag_target} 之其他章節條款！"
+                    )
+                    
                     page_extra_instructions += f"\n\n**【Scoped Audit 指示】**：\n" \
                                               f"1. 你目前被系統主動引導至 `{target['path']}`，請對此頁面進行無障礙驗證。\n" \
-                                              f"2. **焦點地圖已提供**：系統已預先為你掃描並附上『Focus Map』數據。請直接利用此數據評估 WCAG 2.1.1 與 2.4.7，**無需**再次執行 `scan_focus_path`。\n" \
+                                              f"2. **焦點地圖已提供**：系統已預先為你掃描並附上『Focus Map』數據。請直接利用此數據評估 WCAG Guideline {wcag_target} 條款，**無需**再次執行 `scan_focus_path`。\n" \
                                               f"3. {rigor_guide}\n" \
-                                              f"4. **完成任務**：完成此頁面審查後，請產出報告並直接結束對話，以便系統切換至下一頁。"
+                                              f"4. {thought_protocol}\n" \
+                                              f"5. **【主動結案指令 (Early Settlement)】**：\n" \
+                                              f"   - 當你已驗證完當前頁面核心焦點與關鍵互動（通常約 6~12 回合），**請立即停止呼叫任何工具 (No Tool Calls)**！\n" \
+                                              f"   - 在下一個回應中直接輸出完整的【WCAG 條款合規矩陣對照表】與【修復建議】以主動結案！系統收到純文字報告後將自動結算並完成任務，嚴禁為了湊滿回合數而在頁面中反覆無效折返。"
 
             active_skill = None
             if args.wcag:
@@ -891,7 +945,7 @@ def run_agent_workflow(args):
                     report_file.write(f"**AI**: {text_response}\n\n")
                     if not agent.has_function_calls(interaction):
                         if any(kw in text_response for kw in ["WCAG", "合規", "對照表", "診斷報告"]):
-                            dump_single_page_settlement_report(sitemap_target_file, page.url, text_response)
+                            dump_single_page_settlement_report(sitemap_target_file, page.url, text_response, audit_type="dynamic", wcag_guideline=args.wcag)
 
                 if not agent.has_function_calls(interaction):
                     print(f"[OK] [PAGE {page_idx+1}] 任務完成。")
@@ -926,7 +980,7 @@ def run_agent_workflow(args):
                     total_output_tokens += summary_data["usage"]["output"]
                     
                     report_file.write(f"**AI 最終總結**: \n\n{final_summary}\n\n")
-                    dump_single_page_settlement_report(sitemap_target_file, page.url, final_summary)
+                    dump_single_page_settlement_report(sitemap_target_file, page.url, final_summary, audit_type="dynamic", wcag_guideline=args.wcag)
                     print(f"[OK] [PAGE {page_idx+1}] 最終總結已完成並寫入報告。")
                 except Exception as se:
                     print(f"[!] 產出總結失敗: {se}")
@@ -964,6 +1018,10 @@ def run_agent_workflow(args):
             report_file.close()
         if 'log_file' in locals() and not log_file.closed:
             log_file.close()
+        if 'original_stdout' in locals():
+            sys.stdout = original_stdout
+        if 'original_stderr' in locals():
+            sys.stderr = original_stderr
         browser.close()
         playwright.stop()
         print("[✓] Done.\n")
